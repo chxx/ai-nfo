@@ -2,9 +2,7 @@
 .env
 data
 media
-tests
-__pycache__
-*.pyc
 *.log
 dist
 artifacts
+ai-nfo

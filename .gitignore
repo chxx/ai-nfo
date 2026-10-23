@@ -1,9 +1,8 @@
 .env
 data/
 media/
-__pycache__/
-*.pyc
 .DS_Store
 *.log
 artifacts/
 dist/
+ai-nfo

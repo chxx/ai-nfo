@@ -1,8 +1,18 @@
-FROM python:3.12-slim
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY *.go ./
+COPY static ./static
+ARG TARGETOS=linux
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/ai-nfo .
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
-COPY app.py /app/app.py
-COPY static /app/static
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOST=0.0.0.0 PORT=8787 MEDIA_ROOT=/media DATA_DIR=/data
+COPY --from=build /out/ai-nfo /app/ai-nfo
+ENV HOST=0.0.0.0 PORT=8787 MEDIA_ROOT=/media DATA_DIR=/data
 EXPOSE 8787
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=3)" || exit 1
-CMD ["python", "app.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/app/ai-nfo", "healthcheck"]
+ENTRYPOINT ["/app/ai-nfo"]

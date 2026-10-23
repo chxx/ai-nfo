@@ -23,17 +23,22 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify Go
+        run: |
+          test -z "$(gofmt -l *.go)"
+          go vet ./...
+          go test -race -count=1 ./...
+
       - name: Check browser JavaScript
         run: node --check static/app.js
 
       - name: Build test image
         run: docker build --tag ai-nfo:test .
-
-      - name: Run tests with the image's Python runtime
-        run: >-
-          docker run --rm --read-only --tmpfs /tmp
-          --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/app/tests,readonly"
-          ai-nfo:test python -m unittest discover -s tests -v
 
       - name: Start container with deployment restrictions
         run: |
@@ -47,32 +52,10 @@ jobs:
 
       - name: Verify health, page and authentication
         run: |
-          python3 - <<'PY'
-          import json
-          import time
-          import urllib.error
-          import urllib.request
-
-          base = 'http://127.0.0.1:18787'
-          for attempt in range(30):
-              try:
-                  with urllib.request.urlopen(base + '/health', timeout=2) as response:
-                      assert json.load(response)['ok'] is True
-                  break
-              except (OSError, ValueError):
-                  if attempt == 29:
-                      raise
-                  time.sleep(1)
-          with urllib.request.urlopen(base, timeout=3) as response:
-              assert 'AI NFO' in response.read().decode()
-          try:
-              urllib.request.urlopen(base + '/api/state', timeout=3)
-          except urllib.error.HTTPError as error:
-              assert error.code == 401, error.code
-          else:
-              raise AssertionError('Unauthenticated API access must be denied')
-          print('Container smoke check passed')
-          PY
+          curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:18787/health | jq -e '.ok == true'
+          curl --fail http://127.0.0.1:18787/ | grep -q 'AI NFO'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18787/api/state)" = 401
+          docker exec ai-nfo-smoke /app/ai-nfo healthcheck
 
       - name: Collect logs and clean up
         if: always()

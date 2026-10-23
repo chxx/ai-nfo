@@ -2,6 +2,8 @@
 
 在浏览器选择 NAS 视频目录，批量用 AI 整理标题、简介、分类与标签，检查草稿后将 NFO 写回视频旁边。面向 QNAP Container Station 自部署，不需要把视频先上传到网页。
 
+后端使用 Go，前端为 HTML / CSS / JavaScript，SQLite 存储应用数据。项目处于开发阶段，不提供旧版本数据迁移。
+
 ## 已实现
 
 - 已挂载目录浏览、相对路径输入、递归扫描（单次最多 5000 个视频）。
@@ -26,7 +28,7 @@
 
 工作流会自动：
 
-1. 检查前端 JavaScript、构建测试镜像，并用镜像内的 Python 运行测试。
+1. 检查 Go 格式、运行静态检查与竞态检测测试，检查前端 JavaScript，并构建 Go 运行镜像。
 2. 启动临时容器检查健康状态、页面和未登录访问保护。
 3. 测试通过后，将默认分支或 `v*` 标签的镜像推送至 GHCR，包含 `linux/amd64` 和 `linux/arm64`。普通分支和 PR 只测试，不发布。
 
@@ -86,7 +88,7 @@ docker compose -f compose.ghcr.yaml up -d
 
 新镜像不会自动更新正在运行的容器，需要执行上述命令或在 Container Station 中重新创建容器。更新前等待批量任务结束；`/data` 和视频目录是宿主机挂载，重建容器会保留其中的数据。
 
-需要固定版本时，将 `.env` 的 `AI_NFO_IMAGE` 改成已经发布的 `:v1.0.0`、`:sha-完整提交SHA` 或 GHCR 给出的 `@sha256:...` 摘要，再拉取并重建。回退前备份应用数据目录，并确认旧版本兼容数据格式；切换镜像版本不会回滚已经写出的 NFO。
+需要固定版本时，将 `.env` 的 `AI_NFO_IMAGE` 改成已经发布的 `:v1.0.0`、`:sha-完整提交SHA` 或 GHCR 给出的 `@sha256:...` 摘要，再拉取并重建。开发阶段不提供跨版本数据迁移或兼容保证；切换数据结构不一致的版本时请使用新的应用数据目录。切换镜像版本不会回滚已经写出的 NFO。
 
 ### 方式二：在 NAS 本地构建镜像
 
@@ -125,7 +127,7 @@ APP_PASSWORD='请替换为你自己的密码'
 docker compose up -d --build
 ```
 
-若该版本仅提供旧版命令，使用 `docker-compose up -d --build`。首次构建需要能拉取 `python:3.12-slim`；项目本身没有第三方 Python 依赖。不同 Container Station 版本的 Compose 支持可能不同，容器镜像尚需在实际 QNAP 上构建验证。
+若该版本仅提供旧版命令，使用 `docker-compose up -d --build`。首次构建需要能拉取 `golang:1.25-alpine`、`alpine:3.22` 并下载 Go 模块依赖。后端使用 Go 与纯 Go SQLite 驱动，网页资源嵌入单个可执行文件；运行镜像无需语言运行时。不同 Container Station 版本的 Compose 支持可能不同，容器镜像尚需在实际 QNAP 上构建验证。
 
 之后打开 `http://你的NAS地址:8787`，使用 `.env` 的访问密码登录。SSH 只用于首次构建、升级和配置，日常目录扫描、模型设置、草稿与批量操作均在网页完成。
 
@@ -203,14 +205,16 @@ Python 教程/
 
 ## 本机开发与验证
 
-Python 3.9 或更新版本，无需安装依赖。默认仅绑定本机地址；对局域网监听必须设置至少 8 位访问密码。
+Go 1.25 或更新版本；首次构建会下载 `go.mod` 中的依赖。默认仅绑定本机地址；对局域网监听必须设置至少 8 位访问密码。
 
 ```sh
-MEDIA_ROOT=/实际的视频目录 DATA_DIR=/实际的数据目录 python3 app.py
+MEDIA_ROOT=/实际的视频目录 DATA_DIR=/实际的数据目录 go run .
 ```
 
 ```sh
-python3 -m unittest discover -s tests -v
+go test -race ./...
+go vet ./...
+go build -o ai-nfo .
 node --check static/app.js
 ```
 
