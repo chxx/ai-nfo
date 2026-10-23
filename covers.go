@@ -194,11 +194,16 @@ func coverContext(v Video, scope string) map[string]any {
 }
 
 func (s *Store) searchCovers(ctx context.Context, body CoverRequest) (CoverResults, error) {
-	result := CoverResults{Candidates: []CoverCandidate{}, Warnings: []string{}}
-	if !s.coverMu.TryLock() {
-		return result, userError("已有封面查找或截图正在进行，请稍后重试")
+	release, err := s.acquireCover(ctx, false)
+	if err != nil {
+		return CoverResults{}, err
 	}
-	defer s.coverMu.Unlock()
+	defer release()
+	return s.searchCoversWork(ctx, body)
+}
+
+func (s *Store) searchCoversWork(ctx context.Context, body CoverRequest) (CoverResults, error) {
+	result := CoverResults{Candidates: []CoverCandidate{}, Warnings: []string{}}
 	ctx, cancel := context.WithTimeout(ctx, 105*time.Second)
 	defer cancel()
 	v, err := s.getVideo(body.ID)
@@ -380,6 +385,9 @@ func (s *Store) saveCover(body SaveCoverRequest) (map[string]any, error) {
 	if err := s.ensureIdle(); err != nil {
 		return nil, err
 	}
+	return s.saveCoverWork(body)
+}
+func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 	v, err := s.getVideo(body.ID)
 	if err != nil {
 		return nil, err
@@ -464,10 +472,15 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 func (s *Store) snapshotCover(ctx context.Context, body SnapshotRequest) (CoverCandidate, error) {
-	if !s.coverMu.TryLock() {
-		return CoverCandidate{}, userError("已有封面查找或截图正在进行，请稍后重试")
+	release, err := s.acquireCover(ctx, false)
+	if err != nil {
+		return CoverCandidate{}, err
 	}
-	defer s.coverMu.Unlock()
+	defer release()
+	return s.snapshotCoverWork(ctx, body)
+}
+
+func (s *Store) snapshotCoverWork(ctx context.Context, body SnapshotRequest) (CoverCandidate, error) {
 	if math.IsNaN(body.Seconds) || math.IsInf(body.Seconds, 0) || body.Seconds < 0 || body.Seconds > 86400 {
 		return CoverCandidate{}, userError("截图时间应在 0–86400 秒之间")
 	}

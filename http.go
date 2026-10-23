@@ -234,6 +234,8 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 			return s.unavailableVideos()
 		case "/api/covers":
 			return s.coverInfo(query.Get("id"), query.Get("scope"))
+		case "/api/cover-tasks":
+			return s.coverTaskList(query.Get("id"))
 		case "/api/preview":
 			files, err := s.preview(query.Get("id"))
 			return map[string]any{"files": files}, err
@@ -325,6 +327,14 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return ok, s.cancelJob(body.ID)
+		case "/api/cover-jobs/retry":
+			var body struct {
+				ID string `json:"id"`
+			}
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.retryCoverJob(body.ID)
 		}
 	}
 	return nil, nil

@@ -67,6 +67,8 @@ jobs:
           docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -f lavfi -i color=c=red:s=640x480 -frames:v 1 -threads 1 /tmp/embedded.png
           docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -i /media/smoke.mp4 -i /tmp/embedded.png -map 0:v:0 -map 1:v:0 -c copy -disposition:v:1 attached_pic -metadata title='Embedded lesson' -metadata description='Embedded description' /media/embedded-mp4.mp4
           docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -i /media/smoke.mp4 -map 0:v:0 -c copy -attach /tmp/embedded.png -metadata:s:t mimetype=image/png -metadata:s:t filename=cover.png -metadata title='Embedded lesson' /media/embedded-mkv.mkv
+          docker exec ai-nfo-smoke cp /media/smoke.mp4 /media/auto-frame.mp4
+          docker exec ai-nfo-smoke cp /media/embedded-mp4.mp4 /media/auto-embedded.mp4
           node <<'JS'
           (async () => {
             const base = 'http://127.0.0.1:18787';
@@ -99,6 +101,23 @@ jobs:
               if (screenshot.height !== 720) throw new Error('Screenshot selected cover art instead of video: ' + name);
             }
             console.log('MP4 and MKV embedded metadata, cover extraction and saving passed');
+            const queued = await post('/api/jobs', {action: 'covers', ids: ['auto-frame.mp4', 'auto-embedded.mp4', 'smoke.mp4'].map(idFor)});
+            let job;
+            for (let i = 0; i < 100; i++) {
+              const response = await fetch(base + '/api/state', {headers: {Cookie: cookie}});
+              const state = await response.json();
+              if (!response.ok) throw new Error('Cannot read cover progress');
+              job = state.jobs.find(j => j.id === queued.id);
+              if (job && !['queued', 'running', 'cancelling'].includes(job.status)) break;
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            if (job?.status !== 'completed' || job.done !== 3 || job.skipped !== 1 || job.failed !== 0) throw new Error('Automatic covers failed: ' + JSON.stringify(job));
+            for (const [name, kind] of [['auto-frame.mp4', 'snapshot'], ['auto-embedded.mp4', 'embedded']]) {
+              const response = await fetch(base + '/api/covers?id=' + idFor(name) + '&scope=video', {headers: {Cookie: cookie}});
+              const cover = await response.json();
+              if (!response.ok || !cover.exists || cover.current?.kind !== kind) throw new Error('Wrong automatic cover: ' + JSON.stringify(cover));
+            }
+            console.log('Async automatic embedded covers, short-video screenshot fallback and existing-cover preservation passed');
           })().catch(error => {console.error(error); process.exitCode = 1;});
           JS
 

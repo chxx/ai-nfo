@@ -4,7 +4,11 @@ const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'a
 const statusNames = {new: '等待整理', draft: '待确认', saved: '已保存', error: '处理失败', generating: '生成中'};
 const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在取消', cancelled: '已取消', completed: '已完成', partial: '部分失败', interrupted: '已中断'};
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const activeJob = () => state.jobs.find(j => ['queued', 'running', 'cancelling'].includes(j.status));
+const jobActive = j => ['queued', 'running', 'cancelling'].includes(j.status);
+const activeTextJob = () => state.jobs.find(j => j.action !== 'covers' && jobActive(j));
+const activeJob = () => activeTextJob() || state.jobs.find(jobActive);
+const jobTitle = action => ({generate:'AI 生成资料', save:'保存 NFO', covers:'自动获取封面 · 并发 4'})[action] || action;
+let coverDetailID = '';
 let toastTimer;
 let cleanupIDs = [];
 let clearRecordsRequest = null;
@@ -48,8 +52,9 @@ function renderSelection() {
   $('select-all').indeterminate = selected.length > 0 && selected.length < videos.length;
   $('select-all').disabled = !videos.length;
   $('selected-count').textContent = state.selected.size ? `已选 ${state.selected.size} 项` : '未选择';
-  $('generate').disabled = !state.selected.size || !!activeJob();
-  $('write').disabled = !state.selected.size || !!activeJob();
+  $('generate').disabled = !state.selected.size || !!activeTextJob();
+  $('auto-covers').disabled = !state.selected.size;
+  $('write').disabled = !state.selected.size || !!activeTextJob();
   $('open-cleanup').disabled = !!activeJob() || state.root_available === false;
   $('clear-selected').disabled = !state.selected.size || !!activeJob();
   $('clear-all-records').disabled = !state.videos.length || !!activeJob();
@@ -72,15 +77,15 @@ function renderVideos() {
 }
 function renderJobs() {
   const job = activeJob();
-  $('job-banner').hidden = !job; $('job-count').textContent = job ? '1' : '0';
+  $('job-banner').hidden = !job; $('job-count').textContent = String(state.jobs.filter(jobActive).length);
   if (job) {
-    $('job-title').textContent = `${job.action === 'generate' ? 'AI 正在整理视频资料' : '正在保存 NFO'} · ${jobNames[job.status]}`;
+    $('job-title').textContent = `${jobTitle(job.action)} · ${jobNames[job.status]}`;
     $('job-description').textContent = `${job.done} / ${job.total} 项已处理，${job.skipped} 项跳过，${job.failed} 项失败。可关闭网页，任务在后台继续。`;
     $('job-progress').value = job.total ? 100 * job.done / job.total : 0;
     $('cancel-job').disabled = job.status === 'cancelling';
     $('cancel-job').textContent = job.status === 'cancelling' ? '等待当前请求结束' : '取消任务';
   }
-  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${j.action === 'generate' ? 'AI 生成资料' : '保存 NFO'}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
+  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${jobTitle(j.action)}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p><div class="form-actions">${jobActive(j) ? `<button class="secondary small" data-cancel-job="${j.id}" ${j.status === 'cancelling' ? 'disabled' : ''}>取消此任务</button>` : ''}${j.action === 'covers' ? `<button class="secondary small" data-cover-detail="${j.id}">查看封面明细</button>${!jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-covers="${j.id}">重试未完成封面</button>` : ''}` : ''}</div></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
 }
 async function refresh() {
   if (state.loading) return;
@@ -94,6 +99,7 @@ async function refresh() {
     $('nav-count').textContent = state.videos.length; $('stat-total').textContent = state.videos.length;
     ['new', 'draft', 'saved'].forEach(x => $('stat-' + x).textContent = state.videos.filter(v => v.status === x).length);
     renderJobs(); renderVideos();
+    if ($('cover-tasks-dialog').open) await loadCoverTasks();
   } finally { state.loading = false; }
 }
 function fillSettings() {
@@ -131,16 +137,20 @@ async function openScan() {
   try { await browse(state.folder); } catch (err) { $('folder-list').innerHTML = '<p>目录不可访问，请检查挂载和权限</p>'; throw err; }
 }
 function batch(action) {
-  $('batch-dialog').querySelector('.dialog-message')?.remove();
-  state.batch = action; $('overwrite').checked = false;
-  const count = state.selected.size, generate = action === 'generate';
-  $('batch-title').textContent = generate ? '批量生成视频资料' : '将资料保存为 NFO';
-  $('batch-description').textContent = `已选择 ${count} 个视频。${generate ? '生成结果先保存为草稿，之后可以逐条检查和编辑。' : '将当前草稿写入对应视频所在的目录。没有草稿或分集信息不完整的条目会标记失败。'}`;
-  $('batch-notice').textContent = generate ? '所选视频的文件名、目录名、内嵌标签、外置字幕和简介片段将发送到你配置的 AI 接口。不会上传视频文件。已有草稿默认跳过。' : '已有 NFO 默认保留。系列会写入 tvshow.nfo 和每集同名 NFO；不会修改或重命名原视频。';
+  state.batch = action;
+  const count = state.selected.size, generate = action === 'generate', covers = action === 'covers';
+  $('batch-title').textContent = covers ? '自动获取并保存封面' : generate ? '批量生成视频资料' : '将资料保存为 NFO';
+  $('batch-description').textContent = covers ? `已选择 ${count} 个视频，同系列公共封面只处理一次。任务在后台运行，全局最多并发 4 项。` : `已选择 ${count} 个视频。${generate ? '文字结果先保存为草稿；封面作为独立后台任务获取。' : '将当前草稿写入视频目录。'}`;
+  $('batch-notice').textContent = covers ? '按内嵌封面、AI 联网匹配、视频截图的顺序获取，自动选择并保存；已有封面保留。可能产生模型与搜索费用。' : generate ? '文件名、目录、内嵌标签、字幕和简介片段将发送到 AI。自动封面会调用联网搜索并直接写入图片文件，已有封面保留。文字草稿仍需确认保存。' : '已有 NFO 默认保留。封面仍在获取时，NFO 可能尚不包含图片引用，可等待封面完成后再保存。';
+  $('overwrite').parentElement.hidden = covers;
+  $('overwrite').checked = false;
   $('overwrite-label').textContent = generate ? '重新生成已有草稿（将替换手动修改的内容）' : '覆盖已有 NFO（每次覆盖前先保留 .bak 备份）';
-  $('batch-submit').textContent = generate ? '开始生成' : '保存到 NAS';
+  $('auto-cover-option').hidden = !generate;
+  $('batch-auto-covers').checked = true;
+  $('batch-submit').textContent = covers ? '开始自动获取' : generate ? '开始生成' : '保存到 NAS';
   $('batch-dialog').showModal();
 }
+
 function editor(id) {
   $('editor-dialog').querySelector('.dialog-message')?.remove();
   const row = state.videos.find(v => v.id === id); if (!row) return;
@@ -255,9 +265,10 @@ $('clear-records-form').onsubmit = run(async event => {
 });
 $('generate').onclick = () => { if (!state.settings.base_url || !state.settings.model) { page('settings'); toast('请先配置 AI 接口地址和模型名称'); } else batch('generate'); };
 $('write').onclick = () => batch('save');
+$('auto-covers').onclick = () => batch('covers');
 $('batch-form').onsubmit = run(async event => {
   event.preventDefault(); $('batch-submit').disabled = true;
-  try { await api('/api/jobs', {action: state.batch, ids: [...state.selected], overwrite: $('overwrite').checked}); $('batch-dialog').close(); await refresh(); toast('任务已启动，可在批量任务中查看进度'); }
+  try { const result = await api('/api/jobs', {action: state.batch, ids: [...state.selected], overwrite: $('overwrite').checked, auto_covers: state.batch === 'generate' && $('batch-auto-covers').checked}); $('batch-dialog').close(); await refresh(); toast(result.id ? '任务已启动，可在批量任务中查看各自进度' : '这些封面已在队列中，无需重复启动'); }
   finally { $('batch-submit').disabled = false; }
 });
 $('cancel-job').onclick = run(async () => { const job = activeJob(); if (job) { await api('/api/cancel', {id: job.id}); await refresh(); toast('将在当前文件或 AI 请求处理结束后停止'); } });
@@ -309,3 +320,15 @@ async function initialize() {
 }
 setInterval(() => { if (activeJob() && !$('workspace').hidden) refresh().catch(err => toast(err.message, true)); }, 2200);
 initialize().catch(err => toast(err.message, true));
+
+async function loadCoverTasks() {
+  const items = await api('/api/cover-tasks?id=' + encodeURIComponent(coverDetailID));
+  const labels = {queued:'排队中', running:'获取中', saved:'已保存', skipped:'已保留', failed:'失败', cancelled:'已取消', interrupted:'已中断'};
+  $('cover-task-list').innerHTML = items.map(t => '<li><strong>' + escapeHtml(t.scope === 'series' ? '系列封面' : '视频封面') + ' · ' + escapeHtml(labels[t.status] || t.status) + '</strong><br>' + escapeHtml(t.path) + (t.error ? '<br>' + escapeHtml(t.error) : '') + '</li>').join('');
+}
+$('jobs-list').onclick = run(async event => {
+  const cancel = event.target.closest('[data-cancel-job]'), retry = event.target.closest('[data-retry-covers]'), detail = event.target.closest('[data-cover-detail]');
+  if (cancel) { await api('/api/cancel', {id: cancel.dataset.cancelJob}); await refresh(); }
+  if (retry) { retry.disabled = true; try { const result = await api('/api/cover-jobs/retry', {id: retry.dataset.retryCovers}); await refresh(); toast(result.id ? '未完成封面已加入重试队列' : '没有需要重试的封面，或已在队列中'); } finally { retry.disabled = false; } }
+  if (detail) { coverDetailID = detail.dataset.coverDetail; await loadCoverTasks(); $('cover-tasks-dialog').showModal(); }
+});

@@ -102,11 +102,16 @@ func (p embeddedProbe) metadata() map[string]string {
 }
 
 func (s *Store) embeddedCovers(ctx context.Context, body CoverRequest) (CoverResults, error) {
-	result := CoverResults{Candidates: []CoverCandidate{}, Warnings: []string{}}
-	if !s.coverMu.TryLock() {
-		return result, userError("已有封面查找或截图正在进行，请稍后重试")
+	release, err := s.acquireCover(ctx, false)
+	if err != nil {
+		return CoverResults{}, err
 	}
-	defer s.coverMu.Unlock()
+	defer release()
+	return s.embeddedCoversWork(ctx, body)
+}
+
+func (s *Store) embeddedCoversWork(ctx context.Context, body CoverRequest) (CoverResults, error) {
+	result := CoverResults{Candidates: []CoverCandidate{}, Warnings: []string{}}
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	v, err := s.getVideo(body.ID)

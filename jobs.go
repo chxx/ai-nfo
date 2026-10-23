@@ -5,7 +5,7 @@ import (
 )
 
 func (s *Store) listJobs() ([]Job, error) {
-	rows, err := s.db.Query("SELECT id,action,status,total,done,failed,skipped,message,created FROM jobs ORDER BY created DESC LIMIT 12")
+	rows, err := s.db.Query("SELECT id,action,status,total,done,failed,skipped,message,created FROM jobs WHERE status IN ('queued','running','cancelling') OR id IN (SELECT id FROM jobs ORDER BY created DESC LIMIT 12) ORDER BY created DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -22,19 +22,25 @@ func (s *Store) listJobs() ([]Job, error) {
 }
 
 type JobRequest struct {
-	Action    string   `json:"action"`
-	IDs       []string `json:"ids"`
-	Overwrite bool     `json:"overwrite"`
+	Action     string   `json:"action"`
+	IDs        []string `json:"ids"`
+	Overwrite  bool     `json:"overwrite"`
+	AutoCovers *bool    `json:"auto_covers"`
 }
 
 func (s *Store) startJob(body JobRequest) (map[string]string, error) {
-	if body.Action != "generate" && body.Action != "save" || len(body.IDs) == 0 || len(body.IDs) > 5000 {
+	if body.Action != "generate" && body.Action != "save" && body.Action != "covers" || len(body.IDs) == 0 || len(body.IDs) > 5000 {
 		return nil, userError("请选择 1–5000 个视频")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureIdle(); err != nil {
-		return nil, err
+	if s.ctx.Err() != nil {
+		return nil, userError("服务正在关闭")
+	}
+	if body.Action != "covers" {
+		if err := s.ensureJobsIdle(true); err != nil {
+			return nil, err
+		}
 	}
 	ids := []string{}
 	seen := map[string]bool{}
@@ -53,15 +59,46 @@ func (s *Store) startJob(body JobRequest) (map[string]string, error) {
 		return nil, userError("请先在设置中填写 AI 接口地址和模型名称")
 	}
 	id := randomID()
-	if _, err := s.db.Exec("INSERT INTO jobs(id,action,status,ids,total,created) VALUES(?,?,'queued',?,?,?)", id, body.Action, encode(ids), len(ids), now()); err != nil {
+	var targets []CoverTask
+	var err error
+	if body.Action == "covers" || body.Action == "generate" && (body.AutoCovers == nil || *body.AutoCovers) {
+		targets, err = s.coverTargets(ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
 		return nil, err
+	}
+	defer tx.Rollback()
+	if body.Action != "covers" {
+		if _, err = tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created) VALUES(?,?,'queued',?,?,?)", id, body.Action, encode(ids), len(ids), now()); err != nil {
+			return nil, err
+		}
+	}
+	coverID, tasks, err := queueCoverTasks(tx, targets)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	s.launchCoverJob(coverID, tasks)
+	if body.Action == "covers" {
+		return map[string]string{"id": coverID}, nil
 	}
 	s.wg.Add(1)
 	go func() { defer s.wg.Done(); s.runJob(id, body.Action, ids, body.Overwrite) }()
-	return map[string]string{"id": id}, nil
+	return map[string]string{"id": id, "cover_job_id": coverID}, nil
 }
 func (s *Store) cancelJob(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.db.Exec("UPDATE jobs SET status='cancelling' WHERE id=? AND status IN ('queued','running')", id)
+	if cancel := s.coverCancels[id]; cancel != nil {
+		cancel()
+	}
 	return err
 }
 func (s *Store) runJob(id, action string, ids []string, overwrite bool) {

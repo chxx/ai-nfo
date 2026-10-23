@@ -73,7 +73,8 @@ func waitJob(t *testing.T, s *Store, id string) Job {
 }
 func start(t *testing.T, s *Store, action string, ids []string, overwrite bool) string {
 	t.Helper()
-	r, err := s.startJob(JobRequest{Action: action, IDs: ids, Overwrite: overwrite})
+	autoCovers := false // These tests exercise text/NFO jobs independently.
+	r, err := s.startJob(JobRequest{Action: action, IDs: ids, Overwrite: overwrite, AutoCovers: &autoCovers})
 	if err != nil {
 		t.Fatal(err)
 	}
