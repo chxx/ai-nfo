@@ -6,6 +6,7 @@ const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const activeJob = () => state.jobs.find(j => ['queued', 'running', 'cancelling'].includes(j.status));
 let toastTimer;
+let cleanupIDs = [];
 function toast(message, error = false) {
   const dialog = document.querySelector('dialog[open]');
   if (dialog && error) {
@@ -37,7 +38,7 @@ function size(bytes) {
 function filtered() {
   const search = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value;
   return state.videos.filter(v => (state.kind === 'all' || v.kind === state.kind)
-    && (filter === 'all' || (filter === 'existing' ? v.has_nfo : v.status === filter))
+    && (filter === 'all' || (filter === 'existing' ? v.has_nfo : filter === 'unavailable' ? !v.exists : v.status === filter))
     && (!search || `${v.path} ${v.metadata?.title || ''} ${v.show?.title || ''}`.toLocaleLowerCase().includes(search)));
 }
 function renderSelection() {
@@ -48,6 +49,7 @@ function renderSelection() {
   $('selected-count').textContent = state.selected.size ? `已选 ${state.selected.size} 项` : '未选择';
   $('generate').disabled = !state.selected.size || !!activeJob();
   $('write').disabled = !state.selected.size || !!activeJob();
+  $('open-cleanup').disabled = !!activeJob() || state.root_available === false;
 }
 function renderVideos() {
   const videos = filtered();
@@ -197,6 +199,26 @@ $('scan-form').onsubmit = run(async event => {
     document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === kind));
     await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属系列。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);
   } finally { $('scan-submit').disabled = false; $('scan-feedback').textContent = ''; }
+});
+$('open-cleanup').onclick = run(async () => {
+  $('open-cleanup').disabled = true;
+  try {
+    const data = await api('/api/unavailable');
+    if (!data.videos.length) { await refresh(); toast('没有需要清理的不可访问视频'); return; }
+    cleanupIDs = data.videos.map(v => v.id);
+    $('cleanup-dialog').querySelector('.dialog-message')?.remove();
+    $('cleanup-summary').textContent = '发现 ' + data.total + ' 条不可访问记录，本次将清理 ' + cleanupIDs.length + ' 条。';
+    $('cleanup-list').innerHTML = data.videos.map(v => '<li>' + escapeHtml(v.path) + '</li>').join('');
+    $('cleanup-dialog').showModal();
+  } finally { renderSelection(); }
+});
+$('cleanup-form').onsubmit = run(async event => {
+  event.preventDefault(); $('cleanup-submit').disabled = true;
+  try {
+    const result = await api('/api/cleanup', {ids: cleanupIDs});
+    cleanupIDs = []; $('cleanup-dialog').close(); await refresh();
+    toast('已清理 ' + result.removed + ' 条记录。' + (result.skipped ? result.skipped + ' 条已恢复访问或已移除，本次跳过。' : ''));
+  } finally { $('cleanup-submit').disabled = false; }
 });
 $('generate').onclick = () => { if (!state.settings.base_url || !state.settings.model) { page('settings'); toast('请先配置 AI 接口地址和模型名称'); } else batch('generate'); };
 $('write').onclick = () => batch('save');

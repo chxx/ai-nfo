@@ -216,6 +216,8 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 			return map[string]any{"videos": videos, "jobs": jobs, "settings": s.getConfig().public(), "media_root": s.root, "root_available": err == nil && info.IsDir()}, nil
 		case "/api/directories":
 			return s.directories(query.Get("path"))
+		case "/api/unavailable":
+			return s.unavailableVideos()
 		case "/api/preview":
 			files, err := s.preview(query.Get("id"))
 			return map[string]any{"files": files}, err
@@ -242,6 +244,12 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.scan(body)
+		case "/api/cleanup":
+			var body CleanupRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.cleanupUnavailable(body)
 		case "/api/settings":
 			body := SettingsRequest{Config: Config{Provider: "compatible", JSONMode: true}}
 			if err := decodeBody(raw, &body); err != nil {

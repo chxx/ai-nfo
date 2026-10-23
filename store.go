@@ -120,10 +120,7 @@ func (s *Store) getVideo(id string) (Video, error) {
 		}
 	}
 	v.Filename = filepath.Base(v.Path)
-	if p, e := s.safe(v.Path, false); e == nil {
-		info, e := os.Stat(p)
-		v.Exists = e == nil && info.Mode().IsRegular()
-	}
+	v.Exists = s.videoAvailable(v.Path)
 	if p, e := s.safe(nfoPath(v.Path), false); e == nil {
 		_, e := os.Stat(p)
 		v.HasNFO = e == nil
