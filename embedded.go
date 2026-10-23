@@ -86,7 +86,7 @@ func (p embeddedProbe) metadata() map[string]string {
 			normalized := strings.ToLower(strings.TrimSpace(key))
 			limit := 300
 			switch normalized {
-			case "title", "artist", "author", "album", "album_artist", "date", "year", "creation_time", "copyright", "genre", "show", "episode_id", "season_number", "episode_sort":
+			case "title", "director", "artist", "author", "album", "album_artist", "date", "year", "creation_time", "copyright", "genre", "show", "episode_id", "season_number", "episode_sort":
 			case "description", "synopsis", "comment":
 				limit = 4000
 			default:

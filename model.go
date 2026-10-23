@@ -50,11 +50,12 @@ func cleanText(s string, limit int) string {
 }
 
 type Metadata struct {
-	Title  string   `json:"title"`
-	Plot   string   `json:"plot"`
-	Genres []string `json:"genres"`
-	Tags   []string `json:"tags"`
-	Notes  string   `json:"notes"`
+	Title     string   `json:"title"`
+	Plot      string   `json:"plot"`
+	Directors []string `json:"directors"`
+	Genres    []string `json:"genres"`
+	Tags      []string `json:"tags"`
+	Notes     string   `json:"notes"`
 }
 
 func (m *Metadata) validate() error {
@@ -80,6 +81,7 @@ func (m *Metadata) validate() error {
 		return result
 	}
 	m.Genres, m.Tags = normalize(m.Genres), normalize(m.Tags)
+	m.Directors = normalize(m.Directors)
 	return nil
 }
 func encode(value any) string { b, _ := json.Marshal(value); return string(b) }
@@ -140,6 +142,7 @@ type nfoDocument struct {
 	XMLName   xml.Name
 	Title     string   `xml:"title"`
 	Plot      string   `xml:"plot"`
+	Directors []string `xml:"director,omitempty"`
 	ID        nfoID    `xml:"uniqueid"`
 	Genres    []string `xml:"genre"`
 	Tags      []string `xml:"tag"`
@@ -153,7 +156,7 @@ func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thu
 	if m == nil {
 		return "", userError("请先生成或编辑元数据")
 	}
-	doc := nfoDocument{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
+	doc := nfoDocument{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, Directors: m.Directors, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
 	doc.Thumb = thumb
 	if kind == "episodedetails" {
 		if season == nil || episode == nil {

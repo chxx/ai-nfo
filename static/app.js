@@ -157,9 +157,11 @@ function editor(id) {
   state.editor = row;
   const data = row.metadata || {title: row.filename.replace(/\.[^.]+$/, ''), plot: '', genres: [], tags: [], notes: ''};
   $('edit-title').value = data.title; $('edit-plot').value = data.plot; $('edit-genres').value = (data.genres || []).join('，'); $('edit-tags').value = (data.tags || []).join('，');
+  $('edit-directors').value = (data.directors || []).join('，');
   $('editor-path').textContent = row.path;
   $('series-fields').hidden = row.kind !== 'episode'; $('edit-show-title').required = row.kind === 'episode';
   $('edit-show-title').value = row.show?.title || ''; $('edit-show-plot').value = row.show?.plot || '';
+  $('edit-show-directors').value = (row.show?.directors || []).join('，');
   $('edit-season').value = row.season ?? ''; $('edit-episode').value = row.episode ?? '';
   $('editor-warning').hidden = !(row.error || row.has_nfo);
   $('editor-warning').textContent = row.error || '此视频已有 NFO。本页面编辑的是工作台草稿，不会自动导入原 NFO；默认保存时会跳过已有文件。';
@@ -172,11 +174,11 @@ const splitTags = value => value.split(/[,，]/).map(x => x.trim()).filter(Boole
 async function saveDraft() {
   if (!$('editor-form').reportValidity()) return false;
   const row = state.editor;
-  const body = {id: row.id, metadata: {title: $('edit-title').value, plot: $('edit-plot').value, genres: splitTags($('edit-genres').value), tags: splitTags($('edit-tags').value), notes: row.metadata?.notes || ''}};
+  const body = {id: row.id, metadata: {title: $('edit-title').value, plot: $('edit-plot').value, directors: splitTags($('edit-directors').value), genres: splitTags($('edit-genres').value), tags: splitTags($('edit-tags').value), notes: row.metadata?.notes || ''}};
   if (row.kind === 'episode') {
     body.season = $('edit-season').value === '' ? null : Number($('edit-season').value);
     body.episode = $('edit-episode').value === '' ? null : Number($('edit-episode').value);
-    body.show = {...row.show, title: $('edit-show-title').value, plot: $('edit-show-plot').value};
+    body.show = {...row.show, title: $('edit-show-title').value, plot: $('edit-show-plot').value, directors: splitTags($('edit-show-directors').value)};
   }
   state.editor = await api('/api/edit', body); await refresh(); return true;
 }
@@ -285,6 +287,7 @@ $('read-embedded').onclick = run(async () => {
     const plot = tags.description || tags.synopsis || tags.comment;
     if (plot && !$('edit-plot').value.trim()) { $('edit-plot').value = plot; filled++; }
     if (tags.genre && !$('edit-genres').value.trim()) { $('edit-genres').value = tags.genre; filled++; }
+    if (tags.director && !$('edit-directors').value.trim()) { $('edit-directors').value = tags.director; filled++; }
     $('source-preview').textContent = JSON.stringify(context, null, 2);
     $('editor-notes').textContent = (filled ? `已填入 ${filled} 项内嵌资料，请核对后保存草稿。` : '没有可补充的内嵌资料，已编辑字段保留。') + (context.warnings || []).join('；');
   } finally { $('read-embedded').disabled = false; }

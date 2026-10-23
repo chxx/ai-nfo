@@ -333,7 +333,7 @@ func TestAIProtocolsAndGeneration(t *testing.T) {
 				if err := json.Unmarshal([]byte(messages[1].(map[string]any)["content"].(string)), &evidence); err != nil || evidence["directory"] != "course" {
 					t.Errorf("series or episode generation lacks full directory: %+v %v", evidence, err)
 				}
-				m := map[string]any{"content": encode(Metadata{Title: "生成标题", Plot: "仅根据提供资料"})}
+				m := map[string]any{"content": encode(Metadata{Title: "生成标题", Plot: "仅根据提供资料", Directors: []string{"导演甲", "导演乙"}})}
 				result := map[string]any{"choices": []any{map[string]any{"message": m}}}
 				if provider == "ollama" {
 					result = map[string]any{"message": m}
@@ -358,8 +358,9 @@ func TestAIProtocolsAndGeneration(t *testing.T) {
 				t.Fatal(job)
 			}
 			for _, p := range []string{"course/tvshow.nfo", "course/S01E01.nfo", "course/S01E02.nfo"} {
-				if _, err := os.Stat(filepath.Join(s.root, p)); err != nil {
-					t.Fatal(err)
+				b, err := os.ReadFile(filepath.Join(s.root, p))
+				if err != nil || !strings.Contains(string(b), "<director>导演甲</director>") || !strings.Contains(string(b), "<director>导演乙</director>") {
+					t.Fatal("AI directors not written", p, string(b), err)
 				}
 			}
 		})
