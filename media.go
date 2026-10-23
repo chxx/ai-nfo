@@ -248,12 +248,14 @@ type Source struct {
 	Truncated bool   `json:"truncated"`
 }
 type Evidence struct {
-	Filename  string   `json:"filename"`
-	Folder    string   `json:"folder"`
-	Directory string   `json:"directory"`
-	Kind      string   `json:"kind"`
-	Sources   []Source `json:"sources"`
-	Evidence  string   `json:"evidence"`
+	Filename  string            `json:"filename"`
+	Folder    string            `json:"folder"`
+	Directory string            `json:"directory"`
+	Kind      string            `json:"kind"`
+	Sources   []Source          `json:"sources"`
+	Evidence  string            `json:"evidence"`
+	Embedded  map[string]string `json:"embedded,omitempty"`
+	Warnings  []string          `json:"warnings,omitempty"`
 }
 
 func (s *Store) evidence(v Video) (Evidence, error) {
@@ -264,6 +266,11 @@ func (s *Store) evidence(v Video) (Evidence, error) {
 	}
 	result.Folder = filepath.Base(filepath.Dir(p))
 	result.Directory = s.relative(filepath.Dir(p))
+	if probe, err := probeEmbedded(s.ctx, p); err != nil {
+		result.Warnings = append(result.Warnings, publicError(err))
+	} else {
+		result.Embedded = probe.metadata()
+	}
 	stem := strings.TrimSuffix(p, filepath.Ext(p))
 	candidates := []string{}
 	for _, ext := range []string{".srt", ".vtt", ".txt", ".description", ".info.json"} {
@@ -341,6 +348,9 @@ func (s *Store) evidence(v Video) (Evidence, error) {
 	}
 	if len(result.Sources) > 0 {
 		result.Evidence = "字幕或简介（可能截取）"
+	}
+	if len(result.Embedded) > 0 {
+		result.Evidence = "含文件内嵌标签；结合目录和外置资料核对，标签可能缺失或不准确，不代表已识别视频内容"
 	}
 	return result, nil
 }

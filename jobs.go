@@ -107,6 +107,10 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 		if _, err = s.db.Exec("UPDATE videos SET status='generating',error='' WHERE id=?", id); err != nil {
 			return false, err
 		}
+		evidence, err := s.evidence(v)
+		if err != nil {
+			return false, err
+		}
 		if v.ShowPath != nil {
 			show, err := s.getShow(*v.ShowPath)
 			if err != nil {
@@ -131,7 +135,7 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 				if err != nil {
 					return false, err
 				}
-				show, err = s.ai(s.ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "evidence": "提供完整相对目录和文件名，可能不是完整系列；目录包含品牌或课程层级，请保守概括"})
+				show, err = s.ai(s.ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整系列；内嵌标签仅来自当前单集，不能代表整个系列；请保守概括"})
 				if err != nil {
 					return false, err
 				}
@@ -139,10 +143,6 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 					return false, err
 				}
 			}
-		}
-		evidence, err := s.evidence(v)
-		if err != nil {
-			return false, err
 		}
 		m, err := s.ai(s.ctx, evidence)
 		if err != nil {

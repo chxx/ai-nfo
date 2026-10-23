@@ -459,7 +459,7 @@ type limitedBuffer struct {
 func (b *limitedBuffer) Bytes() []byte { return b.buffer.Bytes() }
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if len(p) > b.limit-b.buffer.Len() {
-		return 0, userError("截图超过大小限制")
+		return 0, userError("媒体读取结果超过大小限制")
 	}
 	return b.buffer.Write(p)
 }
@@ -485,7 +485,7 @@ func (s *Store) snapshotCover(ctx context.Context, body SnapshotRequest) (CoverC
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-threads", "2", "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,avi,mpegts,flv,asf,mpeg,mpegvideo,h264,hevc", "-ss", strconv.FormatFloat(body.Seconds, 'f', 3, 64), "-i", path, "-frames:v", "1", "-vf", "scale=1280:-2", "-threads", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-threads", "2", "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,avi,mpegts,flv,asf,mpeg,mpegvideo,h264,hevc", "-ss", strconv.FormatFloat(body.Seconds, 'f', 3, 64), "-i", path, "-map", "0:V:0", "-frames:v", "1", "-vf", "scale=1280:-2", "-threads", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
 	output := &limitedBuffer{limit: maxCoverBytes}
 	cmd.Stdout = output
 	if err = cmd.Run(); err != nil {

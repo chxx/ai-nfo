@@ -172,6 +172,8 @@ docker build -t ai-nfo:local .
 
 ## 查找系列和每集封面
 
+打开「查找封面」会先读取当前视频文件的内嵌图片，无需 AI 或搜索服务；也可以点击「读取内嵌封面」重新提取。支持 FFmpeg 识别的附加图片流，以及 MKV 中的 JPEG / PNG / WebP 图片附件。每次最多提取 4 张，仍需选择后保存；不会改写原视频。系列模式提取的也是当前单集的图片，请确认适合作为整个系列的封面。没有可用图片时可继续联网查找或截图。
+
 在视频列表点击 **查找封面**，选择“系列封面”或“当前视频 / 本集封面”。系列封面由该系列所有视频共用。
 
 1. **直接提供来源**：填写原课程 / 视频网页链接，程序提取 Open Graph、Twitter Card 或 JSON-LD 中的图片；也支持公开 JPEG / PNG / WebP 图片直链。此方式无需搜索服务或文字模型。
@@ -198,6 +200,12 @@ AI 会收到这样的目录上下文，而不只是最末级目录名：
 接口参考：[Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search)、[SearXNG Search API](https://docs.searxng.org/dev/search_api.html)。
 
 ## NFO 输出
+
+生成资料前会使用 FFprobe 读取文件内嵌的标题、简介、作者、专辑、日期、分类等常见标签，并与完整相对目录、外置字幕 / 简介一起提供给 AI；不会发送全部技术标签。系列总览中会明确标注这些标签仅来自当前单集。标签可能不准确，仍需核对草稿。
+
+不使用 AI 时，可在「编辑资料」点击「读取内嵌资料」，补充默认标题和空白的简介、分类，再保存草稿。已编辑的字段保留；原始标签及读取提示可在「查看将发送给 AI 的资料」中查看。作者和日期目前作为参考输入，不会自动扩展 NFO 字段。
+
+内嵌资料按需读取，不会拖慢目录扫描。文件没有标签时继续使用已有输入；缺少 FFprobe、读取失败或超时时会提示并保留外置资料生成流程。本机调试需安装包含 `ffmpeg` 和 `ffprobe` 的 FFmpeg 工具包，Docker 镜像已包含。读取和截图均限制为本地媒体，不会执行标签里的路径或指令。参考 [FFprobe 文档](https://ffmpeg.org/ffprobe.html) 和 [FFmpeg 附件提取文档](https://ffmpeg.org/ffmpeg.html#Main-options)。
 
 独立视频使用 `<movie>`：
 

@@ -64,12 +64,16 @@ jobs:
       - name: Verify FFmpeg cover extraction
         run: |
           docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -f lavfi -i color=c=blue:s=320x180:d=2 -c:v mpeg4 /media/smoke.mp4
+          docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -f lavfi -i color=c=red:s=640x480 -frames:v 1 -threads 1 /tmp/embedded.png
+          docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -i /media/smoke.mp4 -i /tmp/embedded.png -map 0:v:0 -map 1:v:0 -c copy -disposition:v:1 attached_pic -metadata title='Embedded lesson' -metadata description='Embedded description' /media/embedded-mp4.mp4
+          docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -i /media/smoke.mp4 -map 0:v:0 -c copy -attach /tmp/embedded.png -metadata:s:t mimetype=image/png -metadata:s:t filename=cover.png -metadata title='Embedded lesson' /media/embedded-mkv.mkv
           node <<'JS'
           (async () => {
             const base = 'http://127.0.0.1:18787';
             const login = await fetch(base + '/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: 'ci-only-test-password'})});
             if (!login.ok) throw new Error('Login failed');
             const cookie = login.headers.get('set-cookie').split(';')[0];
+            const idFor = name => require('node:crypto').createHash('sha256').update(name).digest('hex').slice(0, 24);
             async function post(path, body) {
               const response = await fetch(base + path, {method: 'POST', headers: {'Content-Type': 'application/json', Cookie: cookie}, body: JSON.stringify(body)});
               const result = await response.json();
@@ -77,11 +81,24 @@ jobs:
               return result;
             }
             const scan = await post('/api/scan', {path: '', kind: 'movie', recursive: true});
-            const image = await post('/api/covers/snapshot', {id: scan.ids[0], scope: 'video', seconds: 0.5});
+            const image = await post('/api/covers/snapshot', {id: idFor('smoke.mp4'), scope: 'video', seconds: 0.5});
             if (image.width < 64 || image.kind !== 'snapshot') throw new Error('Invalid snapshot');
-            const saved = await post('/api/covers/save', {id: scan.ids[0], scope: 'video', candidate_id: image.id});
+            const saved = await post('/api/covers/save', {id: idFor('smoke.mp4'), scope: 'video', candidate_id: image.id});
             if (!saved.saved) throw new Error('Snapshot was not saved');
             console.log('FFmpeg screenshot and cover saving passed');
+            for (const name of ['embedded-mp4.mp4', 'embedded-mkv.mkv']) {
+              const id = idFor(name);
+              const response = await fetch(base + '/api/context?id=' + id, {headers: {Cookie: cookie}});
+              const context = await response.json();
+              if (!response.ok || context.embedded?.title !== 'Embedded lesson') throw new Error('Embedded title not read: ' + name + JSON.stringify(context));
+              const covers = await post('/api/covers/embedded', {id, scope: 'video'});
+              if (covers.candidates.length !== 1 || covers.candidates[0].kind !== 'embedded' || covers.candidates[0].width !== 640) throw new Error('Embedded image not extracted: ' + name + JSON.stringify(covers));
+              const result = await post('/api/covers/save', {id, scope: 'video', candidate_id: covers.candidates[0].id});
+              if (!result.saved) throw new Error('Embedded cover not saved: ' + name);
+              const screenshot = await post('/api/covers/snapshot', {id, scope: 'video', seconds: 0.5});
+              if (screenshot.height !== 720) throw new Error('Screenshot selected cover art instead of video: ' + name);
+            }
+            console.log('MP4 and MKV embedded metadata, cover extraction and saving passed');
           })().catch(error => {console.error(error); process.exitCode = 1;});
           JS
 

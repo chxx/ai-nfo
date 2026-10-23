@@ -278,6 +278,12 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.searchCovers(r.Context(), body)
+		case "/api/covers/embedded":
+			var body CoverRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.embeddedCovers(r.Context(), body)
 		case "/api/covers/snapshot":
 			var body SnapshotRequest
 			if err := decodeBody(raw, &body); err != nil {

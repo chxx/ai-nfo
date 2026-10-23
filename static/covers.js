@@ -1,9 +1,9 @@
 'use strict';
 const coverState = {video: null, candidates: [], busy: false};
-const coverMatchNames = {likely: 'AI：可能匹配', uncertain: 'AI：待核对', unlikely: 'AI：可能不匹配', unreviewed: '待手动核对', local: '本地截图'};
+const coverMatchNames = {likely: 'AI：可能匹配', uncertain: 'AI：待核对', unlikely: 'AI：可能不匹配', unreviewed: '待手动核对', local: '本地截图', embedded: '文件内嵌封面'};
 function coverBusy(busy) {
   coverState.busy = busy;
-  ['cover-search', 'cover-snapshot', 'cover-scope', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy);
+  ['cover-search', 'cover-embedded', 'cover-snapshot', 'cover-scope', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy);
   $('cover-save').disabled = busy || !document.querySelector('input[name="cover-choice"]:checked');
 }
 function renderCoverCandidates(candidates) {
@@ -30,10 +30,19 @@ async function openCovers(id) {
   $('cover-ai').checked = !!(state.settings.model && state.settings.base_url);
   $('cover-feedback').textContent = '选择系列或本集封面，填写来源链接或直接联网查找。';
   renderCoverCandidates([]); $('cover-dialog').showModal();
-  coverBusy(true); try { await loadCurrentCover(); } finally { coverBusy(false); }
+  coverBusy(true); try { await loadCurrentCover(); await loadEmbeddedCovers(); } finally { coverBusy(false); }
 }
+async function loadEmbeddedCovers() {
+  $('cover-feedback').textContent = '正在读取视频内嵌封面…';
+  try {
+    const data = await api('/api/covers/embedded', {id: coverState.video.id, scope: $('cover-scope').value});
+    renderCoverCandidates(data.candidates);
+    $('cover-feedback').textContent = `找到 ${data.candidates.length} 张内嵌封面。${data.warnings.join('；')}`;
+  } catch (err) { $('cover-feedback').textContent = err.message + '；可继续联网查找或截图。'; }
+}
+$('cover-embedded').onclick = run(async () => { coverBusy(true); try { await loadEmbeddedCovers(); } finally { coverBusy(false); } });
 $('video-list').addEventListener('click', run(async event => { const button = event.target.closest('[data-cover]'); if (button) await openCovers(button.dataset.cover); }));
-$('cover-scope').onchange = run(async () => { renderCoverCandidates([]); $('cover-feedback').textContent = ''; $('cover-overwrite').checked = false; coverBusy(true); try { await loadCurrentCover(); } finally { coverBusy(false); } });
+$('cover-scope').onchange = run(async () => { renderCoverCandidates([]); $('cover-feedback').textContent = ''; $('cover-overwrite').checked = false; coverBusy(true); try { await loadCurrentCover(); await loadEmbeddedCovers(); } finally { coverBusy(false); } });
 $('cover-candidates').onchange = () => coverBusy(coverState.busy);
 $('cover-form').onsubmit = run(async event => {
   event.preventDefault(); $('cover-dialog').querySelector('.dialog-message')?.remove(); coverBusy(true); renderCoverCandidates([]); $('cover-feedback').textContent = '正在检索来源、提取图片并判断匹配度，最多等待约 105 秒…';

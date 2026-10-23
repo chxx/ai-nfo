@@ -135,7 +135,7 @@ function batch(action) {
   const count = state.selected.size, generate = action === 'generate';
   $('batch-title').textContent = generate ? '批量生成视频资料' : '将资料保存为 NFO';
   $('batch-description').textContent = `已选择 ${count} 个视频。${generate ? '生成结果先保存为草稿，之后可以逐条检查和编辑。' : '将当前草稿写入对应视频所在的目录。没有草稿或分集信息不完整的条目会标记失败。'}`;
-  $('batch-notice').textContent = generate ? '所选视频的文件名、目录名、外置字幕和简介片段将发送到你配置的 AI 接口。不会上传视频文件。已有草稿默认跳过。' : '已有 NFO 默认保留。系列会写入 tvshow.nfo 和每集同名 NFO；不会修改或重命名原视频。';
+  $('batch-notice').textContent = generate ? '所选视频的文件名、目录名、内嵌标签、外置字幕和简介片段将发送到你配置的 AI 接口。不会上传视频文件。已有草稿默认跳过。' : '已有 NFO 默认保留。系列会写入 tvshow.nfo 和每集同名 NFO；不会修改或重命名原视频。';
   $('overwrite-label').textContent = generate ? '重新生成已有草稿（将替换手动修改的内容）' : '覆盖已有 NFO（每次覆盖前先保留 .bak 备份）';
   $('batch-submit').textContent = generate ? '开始生成' : '保存到 NAS';
   $('batch-dialog').showModal();
@@ -154,7 +154,7 @@ function editor(id) {
   $('editor-warning').textContent = row.error || '此视频已有 NFO。本页面编辑的是工作台草稿，不会自动导入原 NFO；默认保存时会跳过已有文件。';
   $('editor-notes').textContent = data.notes ? '资料说明：' + data.notes : '请核对简介是否符合实际内容；不确定的信息可以留空。';
   $('nfo-preview').hidden = true; $('nfo-preview').replaceChildren();
-  $('source-preview').textContent = '展开后读取文件名、字幕和简介。'; $('source-preview').parentElement.open = false;
+  $('source-preview').textContent = '展开后读取文件名、内嵌标签、字幕和简介。'; $('source-preview').parentElement.open = false;
   $('editor-dialog').showModal();
 }
 const splitTags = value => value.split(/[,，]/).map(x => x.trim()).filter(Boolean);
@@ -261,6 +261,22 @@ $('batch-form').onsubmit = run(async event => {
 });
 $('cancel-job').onclick = run(async () => { const job = activeJob(); if (job) { await api('/api/cancel', {id: job.id}); await refresh(); toast('将在当前文件或 AI 请求处理结束后停止'); } });
 $('editor-form').onsubmit = run(async event => { event.preventDefault(); if (await saveDraft()) { $('editor-dialog').close(); toast('草稿已保存，还未写入视频目录'); } });
+$('read-embedded').onclick = run(async () => {
+  const row = state.editor; if (!row) return;
+  $('read-embedded').disabled = true;
+  try {
+    const context = await api('/api/context?id=' + row.id);
+    if (state.editor !== row || !$('editor-dialog').open) return;
+    const tags = context.embedded || {};
+    let filled = 0;
+    if (tags.title && (!$('edit-title').value.trim() || (!row.metadata && $('edit-title').value === row.filename.replace(/\.[^.]+$/, '')))) { $('edit-title').value = tags.title; filled++; }
+    const plot = tags.description || tags.synopsis || tags.comment;
+    if (plot && !$('edit-plot').value.trim()) { $('edit-plot').value = plot; filled++; }
+    if (tags.genre && !$('edit-genres').value.trim()) { $('edit-genres').value = tags.genre; filled++; }
+    $('source-preview').textContent = JSON.stringify(context, null, 2);
+    $('editor-notes').textContent = (filled ? `已填入 ${filled} 项内嵌资料，请核对后保存草稿。` : '没有可补充的内嵌资料，已编辑字段保留。') + (context.warnings || []).join('；');
+  } finally { $('read-embedded').disabled = false; }
+});
 $('preview-nfo').onclick = run(async () => {
   if (!await saveDraft()) return;
   const {files} = await api('/api/preview?id=' + state.editor.id);
