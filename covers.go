@@ -242,7 +242,7 @@ func (s *Store) searchCovers(ctx context.Context, body CoverRequest) (CoverResul
 			result.Warnings = append(result.Warnings, "未配置文字模型，候选图片需手动核对")
 		}
 	}
-	if useAI && body.SourceURL == "" && strings.TrimSpace(body.Query) == "" {
+	if useAI && !modelSearchEnabled(s.getConfig()) && body.SourceURL == "" && strings.TrimSpace(body.Query) == "" {
 		var refined struct {
 			Query string `json:"query"`
 		}

@@ -47,11 +47,11 @@
           <label>接口基础地址<input id="base-url" type="url" placeholder="https://api.example.com/v1"><small id="url-help">填写基础地址，程序会追加 /chat/completions。</small></label>
           <div class="form-row"><label>模型名称<input id="model" placeholder="填写服务商提供的模型 ID"></label><label>API Key<input id="api-key" type="password" autocomplete="new-password" placeholder="填写密钥"><small id="key-hint">密钥仅保存在 NAS 数据目录，不会返回网页。</small></label></div>
           <label class="checkbox-label"><input id="json-mode" type="checkbox" checked> 请求 JSON 模式（接口不支持时可关闭）</label><label class="checkbox-label"><input id="clear-key" type="checkbox"> 清除已保存的 API Key</label>
-          <div class="section-divider">联网查找封面</div><p class="muted">搜索服务负责检索原课程页面，文字模型辅助判断来源是否匹配。未配置搜索时，可在封面窗口直接填写原网页链接。</p>
-          <label>搜索服务<select id="search-provider"><option value="none">不使用搜索服务（直接提供来源链接）</option><option value="tavily">Tavily</option><option value="searxng">SearXNG（自建）</option></select></label>
-          <label>搜索服务基础地址<input id="search-url" type="url" placeholder="https://api.tavily.com"><small>填写基础地址，程序追加 /search。SearXNG 需允许 JSON 输出，可填写局域网服务地址。</small></label>
+          <div class="section-divider">联网查找封面</div><p class="muted">默认使用 AI 原生联网，复用上方模型地址和密钥，无需另配搜索服务。CodexProxy / 模型需支持 Responses 的 web_search 工具；也可选择独立搜索服务或直接填写来源链接。</p>
+          <label>搜索服务<select id="search-provider"><option value="model">AI 原生联网（CodexProxy / Responses，复用模型配置）</option><option value="none">不使用搜索服务（直接提供来源链接）</option><option value="tavily">Tavily</option><option value="searxng">SearXNG（自建）</option></select></label>
+          <div id="external-search-settings"><label>搜索服务基础地址<input id="search-url" type="url" placeholder="https://api.tavily.com"><small>填写基础地址，程序追加 /search。SearXNG 需允许 JSON 输出，可填写局域网服务地址。</small></label>
           <label>搜索 API Key<input id="search-key" type="password" autocomplete="new-password" placeholder="Tavily 需要单独的搜索密钥"><small id="search-key-hint">搜索密钥与文字模型密钥独立，保存在 NAS 本地。</small></label>
-          <label class="checkbox-label"><input id="clear-search-key" type="checkbox"> 清除已保存的搜索密钥</label>
+          <label class="checkbox-label"><input id="clear-search-key" type="checkbox"> 清除已保存的搜索密钥</label></div>
           <div class="form-actions"><button type="submit" class="primary">保存配置</button><button id="test-model" type="button" class="secondary">测试连接</button><span id="test-result" aria-live="polite"></span></div>
         </form>
         <div class="settings-card compact"><h2>存储与格式</h2><div class="settings-line"><span>挂载的视频根目录</span><code id="settings-root">/media</code></div><div class="settings-line"><span>NFO 格式</span><strong>Kodi XML · 本地元数据</strong></div><p class="muted">独立视频生成同名 .nfo；系列教程生成 tvshow.nfo 和每集同名 .nfo。未提供日期、评分或作者时不会自动补写。媒体库的具体导入效果需在选定播放器后验证。</p></div>
@@ -72,7 +72,7 @@
     <div id="cover-current" class="cover-current" hidden></div><p id="cover-target" class="hint"></p>
     <label>原课程 / 本集视频网页链接（可选）<input id="cover-source" type="url" placeholder="填写原网页地址，也支持公开图片直链"><small>填写链接时直接提取该页面封面；留空则联网搜索。</small></label>
     <label>搜索词（可选）<input id="cover-query" maxlength="300" placeholder="留空由 AI 提炼；未启用 AI 时使用系列名和文件名"></label>
-    <label class="checkbox-label"><input id="cover-ai" type="checkbox" checked> 使用 AI 提炼搜索词并判断来源匹配度</label><p class="hint">会将课程名称、文件名和简介片段用于搜索 / AI 匹配。可能产生接口费用；AI 判断基于来源文字，仍需核对图片。</p>
+    <label class="checkbox-label"><input id="cover-ai" type="checkbox" checked> 使用 AI 辅助判断来源匹配度（独立搜索服务也会提炼搜索词）</label><p class="hint">AI 原生联网会调用当前模型搜索，不受上方辅助匹配开关影响。会将课程名称、文件名和简介片段用于搜索 / AI 匹配。可能产生接口费用；AI 判断基于来源文字，仍需核对图片。</p>
     <div class="form-actions"><button id="cover-embedded" type="button" class="secondary">读取内嵌封面</button><button id="cover-search" type="submit" class="primary">联网查找封面</button><label class="snapshot-time">截图时间（秒）<input id="cover-seconds" type="number" min="0" max="86400" value="5" step="0.1"></label><button id="cover-snapshot" type="button" class="secondary">从本集截图</button></div>
     <p id="cover-feedback" role="status" class="hint"></p><div id="cover-candidates" class="cover-grid"></div>
     <label class="checkbox-label"><input id="cover-overwrite" type="checkbox"> 覆盖已有封面（先保留 .bak 备份）</label><div class="form-actions"><button id="cover-save" type="button" class="primary" disabled>保存选中封面</button><button type="button" data-close="cover-dialog" class="secondary">关闭</button></div>

@@ -265,7 +265,7 @@ func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
 		return nil, userError("接口地址须为 http(s) 地址，不要包含密钥、查询参数或完整请求路径")
 	}
 	c.Model = cleanText(c.Model, 200)
-	if c.SearchProvider != "" && c.SearchProvider != "none" && c.SearchProvider != "tavily" && c.SearchProvider != "searxng" {
+	if c.SearchProvider != "" && c.SearchProvider != "model" && c.SearchProvider != "none" && c.SearchProvider != "tavily" && c.SearchProvider != "searxng" {
 		return nil, userError("未知搜索接口类型")
 	}
 	c.SearchURL = strings.TrimRight(cleanText(c.SearchURL, 2000), "/")

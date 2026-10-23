@@ -100,8 +100,9 @@ function fillSettings() {
   const config = state.settings;
   $('provider').value = config.provider || 'compatible'; $('base-url').value = config.base_url || ''; $('model').value = config.model || '';
   $('api-key').value = ''; $('api-key').placeholder = config.has_key ? '已保存密钥，留空保持不变' : '填写密钥（本地服务可留空）';
-  $('search-provider').value = config.search_provider || 'none'; $('search-url').value = config.search_url || ''; $('search-key').value = ''; $('clear-search-key').checked = false;
+  $('search-provider').value = config.search_provider || 'model'; $('search-url').value = config.search_url || ''; $('search-key').value = ''; $('clear-search-key').checked = false;
   $('search-key-hint').textContent = config.has_search_key ? '已保存搜索密钥，留空保持不变。' : '搜索密钥与文字模型密钥独立，保存在 NAS 本地。';
+  searchProviderHint();
   $('json-mode').checked = config.json_mode !== false; $('clear-key').checked = false; $('test-result').textContent = ''; providerHint();
 }
 function page(name) {

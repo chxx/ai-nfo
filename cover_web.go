@@ -113,6 +113,15 @@ type webPage struct {
 }
 
 func searchBase(c Config) (string, error) {
+	if modelSearchEnabled(c) {
+		if c.Provider == "ollama" {
+			return "", userError("Ollama 原生接口不支持此联网工具，请选择支持 Responses 的接口或独立搜索服务")
+		}
+		if c.BaseURL == "" || c.Model == "" {
+			return "", userError("请先填写 AI 接口地址和模型，或直接提供来源链接")
+		}
+		return c.BaseURL, nil
+	}
 	if c.SearchProvider != "tavily" && c.SearchProvider != "searxng" {
 		return "", userError("请先配置联网搜索，或直接填写原课程 / 视频链接")
 	}
@@ -130,6 +139,9 @@ func searchBase(c Config) (string, error) {
 }
 func (s *Store) searchPages(ctx context.Context, query string) ([]webPage, error) {
 	c := s.getConfig()
+	if modelSearchEnabled(c) {
+		return s.modelSearchPages(ctx, c, query)
+	}
 	base, err := searchBase(c)
 	if err != nil {
 		return nil, err

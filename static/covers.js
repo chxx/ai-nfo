@@ -72,6 +72,10 @@ $('cover-save').onclick = run(async () => {
     await loadCurrentCover();
   } finally { coverBusy(false); }
 });
+function searchProviderHint() {
+  $('external-search-settings').hidden = !['tavily', 'searxng'].includes($('search-provider').value);
+}
 $('search-provider').onchange = () => {
+  searchProviderHint();
   if ($('search-provider').value === 'tavily' && !$('search-url').value) $('search-url').value = 'https://api.tavily.com';
 };
