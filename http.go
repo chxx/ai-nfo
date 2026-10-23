@@ -143,12 +143,15 @@ func (a *webApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !post && path == "/api/cover-image" {
 		q := r.URL.Query()
-		raw, err := a.store.coverImage(q.Get("id"), q.Get("scope"), q.Get("candidate"))
+		raw, err := a.store.coverImageSized(q.Get("id"), q.Get("scope"), q.Get("candidate"), q.Get("size") == "thumb")
 		if err != nil {
 			failHTTP(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "image/jpeg")
+		if q.Get("v") != "" {
+			w.Header().Set("Cache-Control", "private, max-age=60")
+		}
 		w.Write(raw)
 		return
 	}

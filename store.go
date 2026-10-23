@@ -210,6 +210,7 @@ func (s *Store) listVideos() ([]Video, error) {
 		if err != nil {
 			return nil, err
 		}
+		v.Covers = s.coverPreviews(v)
 		videos = append(videos, v)
 	}
 	return videos, nil

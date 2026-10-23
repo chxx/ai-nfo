@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
 
@@ -53,6 +54,19 @@ type CoverResults struct {
 type coverTarget struct{ Owner, Path string }
 
 func (s *Store) targetCover(v Video, scope string) (coverTarget, error) {
+	target, err := coverTargetPath(v, scope)
+	if err != nil {
+		return target, err
+	}
+	if scope == "video" {
+		if err := s.checkVideoStem(v.Path); err != nil {
+			return coverTarget{}, err
+		}
+	}
+	return target, nil
+}
+
+func coverTargetPath(v Video, scope string) (coverTarget, error) {
 	if scope == "series" {
 		if v.Kind != "episode" || v.ShowPath == nil {
 			return coverTarget{}, userError("此视频不属于系列")
@@ -61,9 +75,6 @@ func (s *Store) targetCover(v Video, scope string) (coverTarget, error) {
 	}
 	if scope != "video" {
 		return coverTarget{}, userError("请选择系列封面或本集封面")
-	}
-	if err := s.checkVideoStem(v.Path); err != nil {
-		return coverTarget{}, err
 	}
 	stem := strings.TrimSuffix(v.Path, filepath.Ext(v.Path))
 	suffix := "-poster.jpg"
@@ -101,6 +112,10 @@ func (s *Store) coverInfo(id, scope string) (map[string]any, error) {
 	return map[string]any{"path": target.Path, "exists": s.videoAvailable(target.Path), "current": current, "preview_url": "/api/cover-image?id=" + v.ID + "&scope=" + scope}, nil
 }
 func normalizeCover(raw []byte) ([]byte, int, int, error) {
+	return normalizeCoverSize(raw, false)
+}
+
+func normalizeCoverSize(raw []byte, thumbnail bool) ([]byte, int, int, error) {
 	if len(raw) > maxCoverBytes {
 		return nil, 0, 0, userError("图片超过 8 MB")
 	}
@@ -115,9 +130,18 @@ func normalizeCover(raw []byte) ([]byte, int, int, error) {
 	if err != nil {
 		return nil, 0, 0, userError("图片无法解码")
 	}
-	canvas := image.NewRGBA(decoded.Bounds())
+	width, height := config.Width, config.Height
+	if thumbnail {
+		scale := min(1.0, 320.0/float64(width), 240.0/float64(height))
+		width, height = max(1, int(float64(width)*scale)), max(1, int(float64(height)*scale))
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	draw.Draw(canvas, canvas.Bounds(), decoded, decoded.Bounds().Min, draw.Over)
+	if width != config.Width || height != config.Height {
+		xdraw.ApproxBiLinear.Scale(canvas, canvas.Bounds(), decoded, decoded.Bounds(), draw.Over, nil)
+	} else {
+		draw.Draw(canvas, canvas.Bounds(), decoded, decoded.Bounds().Min, draw.Over)
+	}
 	var b bytes.Buffer
 	if err = jpeg.Encode(&b, canvas, &jpeg.Options{Quality: 90}); err != nil {
 		return nil, 0, 0, err
@@ -125,7 +149,7 @@ func normalizeCover(raw []byte) ([]byte, int, int, error) {
 	if b.Len() > maxCoverBytes {
 		return nil, 0, 0, userError("转换后的封面超过 8 MB")
 	}
-	return b.Bytes(), config.Width, config.Height, nil
+	return b.Bytes(), width, height, nil
 }
 func (s *Store) cacheCover(owner string, c CoverCandidate, raw []byte) (CoverCandidate, error) {
 	b, w, h, err := normalizeCover(raw)
@@ -421,11 +445,19 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 	return map[string]any{"saved": saved, "path": target.Path}, nil
 }
 func (s *Store) coverImage(id, scope, candidate string) ([]byte, error) {
+	return s.coverImageSized(id, scope, candidate, false)
+}
+
+func (s *Store) coverImageSized(id, scope, candidate string, thumbnail bool) ([]byte, error) {
 	if candidate != "" {
 		var raw []byte
 		err := s.db.QueryRow("SELECT image FROM cover_candidates WHERE id=? AND created>?", candidate, now()-86400).Scan(&raw)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, userError("候选封面已过期，请重新查找")
+		}
+		if err == nil && thumbnail {
+			b, _, _, e := normalizeCoverSize(raw, true)
+			return b, e
 		}
 		return raw, err
 	}
@@ -433,7 +465,7 @@ func (s *Store) coverImage(id, scope, candidate string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.targetCover(v, scope)
+	target, err := coverTargetPath(v, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +482,7 @@ func (s *Store) coverImage(id, scope, candidate string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, _, _, err := normalizeCover(raw)
+	b, _, _, err := normalizeCoverSize(raw, thumbnail)
 	return b, err
 }
 

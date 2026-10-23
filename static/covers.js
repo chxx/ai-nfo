@@ -70,6 +70,7 @@ $('cover-save').onclick = run(async () => {
     const result = await api('/api/covers/save', {id: coverState.video.id, scope: $('cover-scope').value, candidate_id: selected.value, overwrite: $('cover-overwrite').checked});
     $('cover-feedback').textContent = result.saved ? '封面已保存：' + result.path : '已有封面已保留。如需替换，请勾选覆盖后再保存。';
     await loadCurrentCover();
+    await refresh();
   } finally { coverBusy(false); }
 });
 function searchProviderHint() {

@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, batch: '', loading: false};
+const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, batch: '', loading: false};
 const statusNames = {new: '等待整理', draft: '待确认', saved: '已保存', error: '处理失败', generating: '生成中'};
 const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在取消', cancelled: '已取消', completed: '已完成', partial: '部分失败', interrupted: '已中断'};
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -59,8 +59,27 @@ function renderSelection() {
   $('clear-selected').disabled = !state.selected.size || !!activeJob();
   $('clear-all-records').disabled = !state.videos.length || !!activeJob();
 }
+function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
+function listCoverThumbnails(v) {
+  if (!v.covers?.length) return '<span class="no-cover">暂无封面</span>';
+  return '<div class="list-cover-thumbnails">' + v.covers.map(c => {
+    const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
+    const label = coverLabel(v, c.scope);
+    return `<button type="button" class="list-cover-thumb" data-cover-preview="${v.id}" data-cover-scope="${c.scope}" aria-expanded="${open}" aria-controls="cover-preview-${v.id}" aria-label="${open ? '收起' : '查看'}${label}：${escapeHtml(v.filename)}"><img data-list-cover src="${escapeHtml(c.thumbnail_url)}" alt="${label}" loading="lazy" decoding="async" width="88" height="58"><span class="cover-load-error" hidden>图片不可用</span><span>${label}</span></button>`;
+  }).join('') + '</div>';
+}
+function inlineCoverPreview(v) {
+  if (state.coverPreview?.id !== v.id) return '';
+  const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
+  if (!c) return '';
+  const label = coverLabel(v, c.scope);
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
+}
 function renderVideos() {
   const videos = filtered();
+  if (state.coverPreview && !videos.some(v => v.id === state.coverPreview.id && v.covers?.some(c => c.scope === state.coverPreview.scope))) state.coverPreview = null;
+  const focused = document.activeElement?.closest('[data-cover-preview], [data-close-preview]');
+  const focusID = focused?.dataset.coverPreview || focused?.dataset.closePreview, focusScope = focused?.dataset.coverScope, focusClose = !!focused?.dataset.closePreview;
   $('result-count').textContent = `${videos.length} 个视频`;
   $('empty').hidden = !!videos.length;
   if (!videos.length) {
@@ -71,9 +90,10 @@ function renderVideos() {
   }
   $('video-list').innerHTML = videos.map(v => {
     const sequence = v.kind === 'episode' ? `${v.show?.title || '系列'} · S${v.season ?? '?'} E${v.episode ?? '?'}` : v.path;
-    return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>`;
+    return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
   }).join('');
   renderSelection();
+  if (focusID) { const selector = focusClose ? '[data-close-preview]' : '[data-cover-preview]'; [...$('video-list').querySelectorAll(selector)].find(b => (b.dataset.coverPreview || b.dataset.closePreview) === focusID && b.dataset.coverScope === focusScope)?.focus({preventScroll: true}); }
 }
 function renderJobs() {
   const job = activeJob();
@@ -204,7 +224,25 @@ $('video-list').onchange = event => {
   event.target.checked ? state.selected.add(id) : state.selected.delete(id);
   event.target.closest('tr').classList.toggle('selected-row', event.target.checked); renderSelection();
 };
-$('video-list').onclick = event => { const button = event.target.closest('[data-edit]'); if (button) editor(button.dataset.edit); };
+$('video-list').onclick = event => {
+  const preview = event.target.closest('[data-cover-preview]'), close = event.target.closest('[data-close-preview]');
+  if (preview || close) {
+    const button = preview || close, id = button.dataset.coverPreview || button.dataset.closePreview, scope = button.dataset.coverScope;
+    const wasOpen = state.coverPreview?.id === id && state.coverPreview.scope === scope;
+    state.coverPreview = close || wasOpen ? null : {id, scope};
+    renderVideos();
+    if (state.coverPreview) $('cover-preview-' + id)?.scrollIntoView({block:'nearest', behavior:'smooth'});
+    if (close) [...$('video-list').querySelectorAll('[data-cover-preview]')].find(b => b.dataset.coverPreview === id && b.dataset.coverScope === scope)?.focus({preventScroll:true});
+    return;
+  }
+  const edit = event.target.closest('[data-edit]'); if (edit) editor(edit.dataset.edit);
+};
+$('video-list').addEventListener('error', event => {
+  const img = event.target;
+  if (!img.matches?.('img[data-list-cover]')) return;
+  img.hidden = true;
+  const message = img.parentElement.querySelector('.cover-load-error'); if (message) message.hidden = false;
+}, true);
 $('folder-list').onclick = run(async event => { const button = event.target.closest('[data-folder]'); if (button) await browse(button.dataset.folder); });
 $('folder-go').onclick = run(() => browse($('folder-path').value.trim()));
 $('folder-path').onkeydown = run(async event => { if (event.key === 'Enter') { event.preventDefault(); await browse($('folder-path').value.trim()); } });

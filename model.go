@@ -87,21 +87,22 @@ func (m *Metadata) validate() error {
 func encode(value any) string { b, _ := json.Marshal(value); return string(b) }
 
 type Video struct {
-	ID       string    `json:"id"`
-	Path     string    `json:"path"`
-	Size     int64     `json:"size"`
-	Kind     string    `json:"kind"`
-	ShowPath *string   `json:"show_path"`
-	Season   *int      `json:"season"`
-	Episode  *int      `json:"episode"`
-	Metadata *Metadata `json:"metadata"`
-	Status   string    `json:"status"`
-	Error    string    `json:"error"`
-	Updated  float64   `json:"updated"`
-	Filename string    `json:"filename"`
-	Exists   bool      `json:"exists"`
-	HasNFO   bool      `json:"has_nfo"`
-	Show     *Metadata `json:"show,omitempty"`
+	ID       string         `json:"id"`
+	Path     string         `json:"path"`
+	Size     int64          `json:"size"`
+	Kind     string         `json:"kind"`
+	ShowPath *string        `json:"show_path"`
+	Season   *int           `json:"season"`
+	Episode  *int           `json:"episode"`
+	Metadata *Metadata      `json:"metadata"`
+	Status   string         `json:"status"`
+	Error    string         `json:"error"`
+	Updated  float64        `json:"updated"`
+	Filename string         `json:"filename"`
+	Exists   bool           `json:"exists"`
+	HasNFO   bool           `json:"has_nfo"`
+	Covers   []CoverPreview `json:"covers"`
+	Show     *Metadata      `json:"show,omitempty"`
 }
 type Job struct {
 	ID      string  `json:"id"`
