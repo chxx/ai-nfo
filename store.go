@@ -51,7 +51,8 @@ type Store struct {
 	client       *http.Client
 	webClient    *http.Client
 	coverMu      sync.RWMutex
-	coverSlots   chan struct{}
+	coverLimiter *workLimiter
+	aiLimiter    *workLimiter                  // Shared by metadata generation and model-powered cover operations.
 	coverCancels map[string]context.CancelFunc // Guarded by mu.
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -92,8 +93,13 @@ func newStore(root, data string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
+	if err := s.config.validateConcurrency(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.coverSlots = make(chan struct{}, 4)
+	s.coverLimiter = newWorkLimiter(s.config.Concurrency)
+	s.aiLimiter = newWorkLimiter(s.config.Concurrency)
 	s.coverCancels = make(map[string]context.CancelFunc)
 	s.client = &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	s.webClient = publicWebClient()
@@ -269,6 +275,9 @@ func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
 		return nil, err
 	}
 	c := body.Config
+	if err := c.validateConcurrency(); err != nil {
+		return nil, err
+	}
 	if c.Provider != "compatible" && c.Provider != "ollama" {
 		return nil, userError("未知 AI 接口类型")
 	}
@@ -311,6 +320,8 @@ func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
 	s.configMu.Lock()
 	s.config = c
 	s.configMu.Unlock()
+	s.coverLimiter.setLimit(c.Concurrency)
+	s.aiLimiter.setLimit(c.Concurrency)
 	return c.public(), nil
 }
 func atomicJSON(path string, data any) error {

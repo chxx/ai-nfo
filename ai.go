@@ -23,11 +23,21 @@ func (s *Store) ai(ctx context.Context, evidence any) (*Metadata, error) {
 	return metadata, nil
 }
 
+// Hold the slot until the response body has been consumed, not just until headers arrive.
+func (s *Store) acquireAI(ctx context.Context) (func(), error) {
+	return s.aiLimiter.acquire(ctx, s.ctx, true)
+}
+
 func (s *Store) aiJSON(ctx context.Context, system string, evidence any, output any) error {
 	c := s.getConfig()
 	if c.BaseURL == "" || c.Model == "" {
 		return userError("请先在设置中填写 AI 接口地址和模型名称")
 	}
+	release, err := s.acquireAI(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	payload := map[string]any{"model": c.Model, "stream": false, "messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": encode(evidence)}}}
 	endpoint := c.BaseURL + "/chat/completions"
 	if c.Provider == "ollama" {

@@ -7,7 +7,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': 
 const jobActive = j => ['queued', 'running', 'cancelling'].includes(j.status);
 const activeTextJob = () => state.jobs.find(j => j.action !== 'covers' && jobActive(j));
 const activeJob = () => activeTextJob() || state.jobs.find(jobActive);
-const jobTitle = action => ({generate:'AI 生成资料', save:'保存 NFO', covers:'自动获取封面 · 并发 4'})[action] || action;
+const jobTitle = action => ({generate:'AI 生成资料', save:'保存 NFO', covers:'自动获取封面'})[action] || action;
 let coverDetailID = '';
 let toastTimer;
 let cleanupIDs = [];
@@ -104,6 +104,7 @@ async function refresh() {
 }
 function fillSettings() {
   const config = state.settings;
+  $('concurrency').value = config.concurrency || 1;
   $('provider').value = config.provider || 'compatible'; $('base-url').value = config.base_url || ''; $('model').value = config.model || '';
   $('api-key').value = ''; $('api-key').placeholder = config.has_key ? '已保存密钥，留空保持不变' : '填写密钥（本地服务可留空）';
   $('search-provider').value = config.search_provider || 'model'; $('search-url').value = config.search_url || ''; $('search-key').value = ''; $('clear-search-key').checked = false;
@@ -140,7 +141,7 @@ function batch(action) {
   state.batch = action;
   const count = state.selected.size, generate = action === 'generate', covers = action === 'covers';
   $('batch-title').textContent = covers ? '自动获取并保存封面' : generate ? '批量生成视频资料' : '将资料保存为 NFO';
-  $('batch-description').textContent = covers ? `已选择 ${count} 个视频，同系列公共封面只处理一次。任务在后台运行，全局最多并发 4 项。` : `已选择 ${count} 个视频。${generate ? '文字结果先保存为草稿；封面作为独立后台任务获取。' : '将当前草稿写入视频目录。'}`;
+  $('batch-description').textContent = covers ? `已选择 ${count} 个视频，同系列公共封面只处理一次。任务在后台运行，全局最多并发 ${state.settings.concurrency || 1} 项。` : `已选择 ${count} 个视频。${generate ? '文字结果先保存为草稿；封面作为独立后台任务获取。' : '将当前草稿写入视频目录。'}`;
   $('batch-notice').textContent = covers ? '按内嵌封面、AI 联网匹配、视频截图的顺序获取，自动选择并保存；已有封面保留。可能产生模型与搜索费用。' : generate ? '文件名、目录、内嵌标签、字幕和简介片段将发送到 AI。自动封面会调用联网搜索并直接写入图片文件，已有封面保留。文字草稿仍需确认保存。' : '已有 NFO 默认保留。封面仍在获取时，NFO 可能尚不包含图片引用，可等待封面完成后再保存。';
   $('overwrite').parentElement.hidden = covers;
   $('overwrite').checked = false;
@@ -184,7 +185,7 @@ async function saveDraft() {
 }
 async function saveSettings() {
   if (!$('settings-form').reportValidity()) return false;
-  state.settings = await api('/api/settings', {provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked, search_provider: $('search-provider').value, search_url: $('search-url').value, search_key: $('search-key').value, clear_search_key: $('clear-search-key').checked});
+  state.settings = await api('/api/settings', {concurrency: Number($('concurrency').value), provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked, search_provider: $('search-provider').value, search_url: $('search-url').value, search_key: $('search-key').value, clear_search_key: $('clear-search-key').checked});
   fillSettings(); await refresh(); return true;
 }
 

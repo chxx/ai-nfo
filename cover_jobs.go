@@ -19,26 +19,17 @@ type CoverTask struct {
 	Error   string `json:"error"`
 }
 
-// A shared gate covers the whole pipeline; manual requests share the same four slots.
+// A shared gate covers the whole pipeline, including manual requests.
 func (s *Store) acquireCover(ctx context.Context, wait bool) (func(), error) {
-	if wait {
-		select {
-		case s.coverSlots <- struct{}{}:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	} else {
-		select {
-		case s.coverSlots <- struct{}{}:
-		default:
-			return nil, userError("已有 4 项封面操作进行中，请稍后重试")
-		}
+	release, err := s.coverLimiter.acquire(ctx, s.ctx, wait)
+	if err != nil {
+		return nil, err
 	}
 	if !s.coverMu.TryRLock() {
-		<-s.coverSlots
+		release()
 		return nil, userError("正在清理记录，请稍后重试封面操作")
 	}
-	return func() { s.coverMu.RUnlock(); <-s.coverSlots }, nil
+	return func() { s.coverMu.RUnlock(); release() }, nil
 }
 
 func (s *Store) coverTargets(ids []string) ([]CoverTask, error) {
@@ -85,7 +76,7 @@ func queueCoverTasks(tx *sql.Tx, tasks []CoverTask) (string, []CoverTask, error)
 	if len(queued) == 0 {
 		return "", queued, nil
 	}
-	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,'covers','queued',?,?,?,'自动获取封面；全局最多并发 4 项，已有封面保留')", jobID, encode(queued), len(queued), now())
+	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,'covers','queued',?,?,?,'自动获取封面；按配置的并发上限执行，已有封面保留')", jobID, encode(queued), len(queued), now())
 	return jobID, queued, err
 }
 
@@ -115,7 +106,7 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 	}
 	close(queue)
 	var workers sync.WaitGroup
-	for range min(4, len(tasks)) {
+	for range min(s.getConfig().Concurrency, len(tasks)) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()

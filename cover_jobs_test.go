@@ -68,9 +68,20 @@ func TestAutoCoverGenerationAndSeriesDedup(t *testing.T) {
 }
 
 func TestAutoCoverGlobalConcurrencyCancelAndRetry(t *testing.T) {
+	for _, limit := range []int{1, 4} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) { testAutoCoverConcurrency(t, limit) })
+	}
+}
+
+func testAutoCoverConcurrency(t *testing.T, limit int) {
 	s := testStore(t)
 	fakeMediaTools(t, `{"streams":[]}`, testCoverPNG(t))
 	configure(t, s, "https://ai.example", "compatible")
+	config := s.getConfig()
+	config.Concurrency = limit
+	if _, err := s.saveSettings(SettingsRequest{Config: config}); err != nil {
+		t.Fatal(err)
+	}
 	var active, peak atomic.Int32
 	entered := make(chan struct{}, 16)
 	resume := make(chan struct{})
@@ -96,11 +107,11 @@ func TestAutoCoverGlobalConcurrencyCancelAndRetry(t *testing.T) {
 	}
 	ids := scan(t, s, "", "movie")
 	first := start(t, s, "covers", ids[:4], false)
-	for range 4 {
+	for range limit {
 		select {
 		case <-entered:
 		case <-time.After(3 * time.Second):
-			t.Fatal("four workers did not start")
+			t.Fatal("cover worker did not start")
 		}
 	}
 	second := start(t, s, "covers", ids[4:], false)
@@ -113,7 +124,7 @@ func TestAutoCoverGlobalConcurrencyCancelAndRetry(t *testing.T) {
 	}
 	select {
 	case <-entered:
-		t.Fatal("more than four concurrent pipelines")
+		t.Fatal("exceeded configured pipeline limit")
 	case <-time.After(80 * time.Millisecond):
 	}
 	// A text/NFO job is independent of the blocked cover queue.
@@ -129,7 +140,7 @@ func TestAutoCoverGlobalConcurrencyCancelAndRetry(t *testing.T) {
 			t.Fatal(job)
 		}
 	}
-	if peak.Load() != 4 || active.Load() != 0 {
+	if peak.Load() != int32(limit) || active.Load() != 0 {
 		t.Fatal(peak.Load(), active.Load())
 	}
 	if files, _ := filepath.Glob(filepath.Join(s.root, "*.jpg")); len(files) != 0 {
@@ -146,7 +157,7 @@ func TestAutoCoverGlobalConcurrencyCancelAndRetry(t *testing.T) {
 			t.Fatal("screenshot fallback failed", job)
 		}
 	}
-	if peak.Load() > 4 {
+	if peak.Load() > int32(limit) {
 		t.Fatal("retry exceeded cap")
 	}
 }
