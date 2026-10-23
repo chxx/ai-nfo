@@ -45,6 +45,8 @@ jobs:
       - name: Start container with deployment restrictions
         run: |
           mkdir -p "$RUNNER_TEMP/ai-nfo-media"
+          # The container has no DAC_OVERRIDE capability; its UID must own this fixture directory.
+          sudo chown 0:0 "$RUNNER_TEMP/ai-nfo-media"
           docker run -d --name ai-nfo-smoke \
             --read-only --cap-drop ALL --security-opt no-new-privileges:true \
             --tmpfs /tmp --tmpfs /data \
