@@ -6,3 +6,4 @@ media/
 artifacts/
 dist/
 ai-nfo
+__debug_bin*

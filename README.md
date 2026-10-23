@@ -220,6 +220,19 @@ node --check static/app.js
 
 测试使用临时目录和本地假模型 HTTP 服务，验证目录边界、真实协议请求、草稿到 XML 的文件写入、跳过和备份、冲突、任务取消与中断恢复、身份验证及跨站请求拒绝。假模型只用于测试，不会在产品中伪装成真实生成。
 
+### VS Code 断点调试
+
+1. 用 VS Code 打开项目根目录，安装推荐的 **Go** 扩展（`golang.go`），确保终端可以执行 `go version`。
+2. 在项目根目录创建 `media` 文件夹，放入用于测试的视频及字幕 / 简介。`data` 目录由程序启动时自动创建；这两个目录都已被 Git 忽略。
+3. 在“运行和调试”中选择 **AI NFO：本地启动**，按 `F5`。首次启动若提示安装 Delve，按提示安装 `dlv` 后再启动。
+4. 浏览器打开 `http://127.0.0.1:8787`，可在 Go 代码中设置断点。默认仅监听本机、无需登录；AI 接口在网页设置。
+
+配置位于 `.vscode/launch.json`。修改 `MEDIA_ROOT` 可指定其他本地目录，修改 `PORT` 可避开端口冲突；如需测试登录，设置其中的 `APP_PASSWORD`。该配置直接提供环境变量，不读取部署用的 `.env` 文件。
+
+选择 **AI NFO：调试测试** 可调试整个包的测试，或使用 Go 扩展在具体测试函数上方提供的调试入口。测试内有较短的等待时间，长时间停在异步任务断点上可能触发测试超时。网页资源嵌入 Go 程序，修改 HTML / CSS / JavaScript 后需重新启动调试并刷新浏览器。
+
+调试方式参见 [VS Code Go 官方文档](https://github.com/golang/vscode-go/blob/master/docs/debugging.md)。
+
 ## 参考
 
 - [QNAP Container Station 3：目录挂载和容器管理](https://www.qnap.com/en-ca/how-to/tutorial/article/how-to-use-container-station-3)

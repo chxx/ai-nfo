@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "AI NFO：本地启动",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "debugAdapter": "dlv-dap",
+      "program": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "HOST": "127.0.0.1",
+        "PORT": "8787",
+        "MEDIA_ROOT": "${workspaceFolder}/media",
+        "DATA_DIR": "${workspaceFolder}/data",
+        "APP_PASSWORD": ""
+      }
+    },
+    {
+      "name": "AI NFO：调试测试",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "debugAdapter": "dlv-dap",
+      "program": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}",
+      "args": ["-test.v", "-test.timeout=30m"]
+    }
+  ]
+}
