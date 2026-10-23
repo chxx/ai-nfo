@@ -82,6 +82,9 @@ func (a *webApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "/app.js":
 			name = "app.js"
 			mime = "text/javascript"
+		case "/covers.js":
+			name = "covers.js"
+			mime = "text/javascript"
 		case "/style.css":
 			name = "style.css"
 			mime = "text/css"
@@ -136,6 +139,17 @@ func (a *webApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.authenticated(r) {
 		sendJSON(w, 401, map[string]string{"error": "请先登录"})
+		return
+	}
+	if !post && path == "/api/cover-image" {
+		q := r.URL.Query()
+		raw, err := a.store.coverImage(q.Get("id"), q.Get("scope"), q.Get("candidate"))
+		if err != nil {
+			failHTTP(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(raw)
 		return
 	}
 	result, err := a.dispatch(w, r, raw)
@@ -218,6 +232,8 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 			return s.directories(query.Get("path"))
 		case "/api/unavailable":
 			return s.unavailableVideos()
+		case "/api/covers":
+			return s.coverInfo(query.Get("id"), query.Get("scope"))
 		case "/api/preview":
 			files, err := s.preview(query.Get("id"))
 			return map[string]any{"files": files}, err
@@ -250,6 +266,24 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.cleanupUnavailable(body)
+		case "/api/covers/search":
+			var body CoverRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.searchCovers(r.Context(), body)
+		case "/api/covers/snapshot":
+			var body SnapshotRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.snapshotCover(r.Context(), body)
+		case "/api/covers/save":
+			var body SaveCoverRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.saveCover(body)
 		case "/api/settings":
 			body := SettingsRequest{Config: Config{Provider: "compatible", JSONMode: true}}
 			if err := decodeBody(raw, &body); err != nil {

@@ -113,15 +113,18 @@ type Job struct {
 	Created float64 `json:"created"`
 }
 type Config struct {
-	Provider string `json:"provider"`
-	BaseURL  string `json:"base_url"`
-	Model    string `json:"model"`
-	APIKey   string `json:"api_key"`
-	JSONMode bool   `json:"json_mode"`
+	Provider       string `json:"provider"`
+	BaseURL        string `json:"base_url"`
+	Model          string `json:"model"`
+	APIKey         string `json:"api_key"`
+	JSONMode       bool   `json:"json_mode"`
+	SearchProvider string `json:"search_provider"`
+	SearchURL      string `json:"search_url"`
+	SearchKey      string `json:"search_key"`
 }
 
 func (c Config) public() map[string]any {
-	return map[string]any{"provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != ""}
+	return map[string]any{"provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != "", "search_provider": c.SearchProvider, "search_url": c.SearchURL, "has_search_key": c.SearchKey != ""}
 }
 
 type NFOFile struct {
@@ -143,13 +146,15 @@ type nfoDocument struct {
 	ShowTitle string   `xml:"showtitle,omitempty"`
 	Season    *int     `xml:"season,omitempty"`
 	Episode   *int     `xml:"episode,omitempty"`
+	Thumb     string   `xml:"thumb,omitempty"`
 }
 
-func nfoXML(kind string, m *Metadata, id string, season, episode *int, show string) (string, error) {
+func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thumb string) (string, error) {
 	if m == nil {
 		return "", userError("请先生成或编辑元数据")
 	}
 	doc := nfoDocument{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
+	doc.Thumb = thumb
 	if kind == "episodedetails" {
 		if season == nil || episode == nil {
 			return "", userError("请先填写季数和集数，再预览或保存剧集 NFO")

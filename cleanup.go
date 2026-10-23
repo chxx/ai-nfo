@@ -116,12 +116,22 @@ func (s *Store) cleanupUnavailable(body CleanupRequest) (CleanupResult, error) {
 		if _, err = tx.Exec("DELETE FROM videos WHERE id=?", id); err != nil {
 			return CleanupResult{}, err
 		}
+		for _, table := range []string{"cover_candidates", "cover_selections"} {
+			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner=?", "video:"+path); err != nil {
+				return CleanupResult{}, err
+			}
+		}
 		result.Removed++
 		if show.Valid {
 			shows[show.String] = true
 		}
 	}
 	for path := range shows {
+		for _, table := range []string{"cover_candidates", "cover_selections"} {
+			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner=? AND NOT EXISTS (SELECT 1 FROM videos WHERE show_path=?)", "show:"+path, path); err != nil {
+				return CleanupResult{}, err
+			}
+		}
 		if _, err = tx.Exec("DELETE FROM shows WHERE path=? AND NOT EXISTS (SELECT 1 FROM videos WHERE show_path=?)", path, path); err != nil {
 			return CleanupResult{}, err
 		}

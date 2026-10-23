@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS videos (
  show_path TEXT, season INTEGER, episode INTEGER, metadata TEXT,
  status TEXT DEFAULT 'new', error TEXT DEFAULT '', updated REAL);
 CREATE TABLE IF NOT EXISTS shows (path TEXT PRIMARY KEY, metadata TEXT);
+CREATE TABLE IF NOT EXISTS cover_candidates (
+ id TEXT PRIMARY KEY, owner TEXT NOT NULL, image BLOB NOT NULL, metadata TEXT NOT NULL, created REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS cover_selections (
+ owner TEXT PRIMARY KEY, target TEXT NOT NULL, metadata TEXT NOT NULL, updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS jobs (
  id TEXT PRIMARY KEY, action TEXT, status TEXT, ids TEXT,
  total INTEGER, done INTEGER DEFAULT 0, failed INTEGER DEFAULT 0,
@@ -39,6 +43,8 @@ type Store struct {
 	configMu   sync.RWMutex
 	config     Config
 	client     *http.Client
+	webClient  *http.Client
+	coverMu    sync.Mutex
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
@@ -80,6 +86,7 @@ func newStore(root, data string) (*Store, error) {
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.client = &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	s.webClient = publicWebClient()
 	return s, nil
 }
 func (s *Store) close() {
@@ -87,6 +94,7 @@ func (s *Store) close() {
 	s.cancel()
 	s.mu.Unlock()
 	s.wg.Wait()
+	s.webClient.CloseIdleConnections()
 	s.db.Close()
 }
 func (s *Store) getConfig() Config { s.configMu.RLock(); defer s.configMu.RUnlock(); return s.config }
@@ -237,7 +245,8 @@ func (s *Store) edit(body EditRequest) (Video, error) {
 
 type SettingsRequest struct {
 	Config
-	ClearKey bool `json:"clear_key"`
+	ClearKey       bool `json:"clear_key"`
+	ClearSearchKey bool `json:"clear_search_key"`
 }
 
 func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
@@ -256,6 +265,26 @@ func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
 		return nil, userError("接口地址须为 http(s) 地址，不要包含密钥、查询参数或完整请求路径")
 	}
 	c.Model = cleanText(c.Model, 200)
+	if c.SearchProvider != "" && c.SearchProvider != "none" && c.SearchProvider != "tavily" && c.SearchProvider != "searxng" {
+		return nil, userError("未知搜索接口类型")
+	}
+	c.SearchURL = strings.TrimRight(cleanText(c.SearchURL, 2000), "/")
+	if c.SearchURL == "" && c.SearchProvider == "tavily" {
+		c.SearchURL = "https://api.tavily.com"
+	}
+	if c.SearchURL != "" {
+		u, err := url.Parse(c.SearchURL)
+		if err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+			return nil, userError("搜索接口地址须为不含密钥或查询参数的 http(s) 基础地址")
+		}
+	}
+	if body.ClearSearchKey {
+		c.SearchKey = ""
+	} else if c.SearchKey == "" {
+		c.SearchKey = s.getConfig().SearchKey
+	} else {
+		c.SearchKey = cleanText(c.SearchKey, 4000)
+	}
 	if body.ClearKey {
 		c.APIKey = ""
 	} else if c.APIKey == "" {

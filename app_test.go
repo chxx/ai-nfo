@@ -327,6 +327,11 @@ func TestAIProtocolsAndGeneration(t *testing.T) {
 				if r.URL.Path != expected || r.Header.Get("Authorization") != "Bearer test-secret" || body["model"] != "test-model" {
 					t.Errorf("wrong request: %s %+v", r.URL.Path, body)
 				}
+				var evidence map[string]any
+				messages := body["messages"].([]any)
+				if err := json.Unmarshal([]byte(messages[1].(map[string]any)["content"].(string)), &evidence); err != nil || evidence["directory"] != "course" {
+					t.Errorf("series or episode generation lacks full directory: %+v %v", evidence, err)
+				}
 				m := map[string]any{"content": encode(Metadata{Title: "生成标题", Plot: "仅根据提供资料"})}
 				result := map[string]any{"choices": []any{map[string]any{"message": m}}}
 				if provider == "ollama" {

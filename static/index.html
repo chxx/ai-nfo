@@ -44,9 +44,14 @@
       <section id="settings-page" class="page" hidden><div class="page-heading"><div><p class="eyebrow">BRING YOUR OWN MODEL</p><h1>连接你的 AI</h1><p class="muted">使用可配置的兼容接口，或连接局域网中的 Ollama。</p></div></div>
         <form id="settings-form" class="settings-card"><h2>模型连接</h2><p class="muted">生成时会向此接口发送所选视频的文件名、目录名，以及截取的字幕和简介文本。</p>
           <label>接口类型<select id="provider"><option value="compatible">Chat Completions 兼容接口</option><option value="ollama">Ollama 原生接口</option></select></label>
-          <label>接口基础地址<input id="base-url" type="url" placeholder="https://api.example.com/v1" required><small id="url-help">填写基础地址，程序会追加 /chat/completions。</small></label>
-          <div class="form-row"><label>模型名称<input id="model" placeholder="填写服务商提供的模型 ID" required></label><label>API Key<input id="api-key" type="password" autocomplete="new-password" placeholder="填写密钥"><small id="key-hint">密钥仅保存在 NAS 数据目录，不会返回网页。</small></label></div>
+          <label>接口基础地址<input id="base-url" type="url" placeholder="https://api.example.com/v1"><small id="url-help">填写基础地址，程序会追加 /chat/completions。</small></label>
+          <div class="form-row"><label>模型名称<input id="model" placeholder="填写服务商提供的模型 ID"></label><label>API Key<input id="api-key" type="password" autocomplete="new-password" placeholder="填写密钥"><small id="key-hint">密钥仅保存在 NAS 数据目录，不会返回网页。</small></label></div>
           <label class="checkbox-label"><input id="json-mode" type="checkbox" checked> 请求 JSON 模式（接口不支持时可关闭）</label><label class="checkbox-label"><input id="clear-key" type="checkbox"> 清除已保存的 API Key</label>
+          <div class="section-divider">联网查找封面</div><p class="muted">搜索服务负责检索原课程页面，文字模型辅助判断来源是否匹配。未配置搜索时，可在封面窗口直接填写原网页链接。</p>
+          <label>搜索服务<select id="search-provider"><option value="none">不使用搜索服务（直接提供来源链接）</option><option value="tavily">Tavily</option><option value="searxng">SearXNG（自建）</option></select></label>
+          <label>搜索服务基础地址<input id="search-url" type="url" placeholder="https://api.tavily.com"><small>填写基础地址，程序追加 /search。SearXNG 需允许 JSON 输出，可填写局域网服务地址。</small></label>
+          <label>搜索 API Key<input id="search-key" type="password" autocomplete="new-password" placeholder="Tavily 需要单独的搜索密钥"><small id="search-key-hint">搜索密钥与文字模型密钥独立，保存在 NAS 本地。</small></label>
+          <label class="checkbox-label"><input id="clear-search-key" type="checkbox"> 清除已保存的搜索密钥</label>
           <div class="form-actions"><button type="submit" class="primary">保存配置</button><button id="test-model" type="button" class="secondary">测试连接</button><span id="test-result" aria-live="polite"></span></div>
         </form>
         <div class="settings-card compact"><h2>存储与格式</h2><div class="settings-line"><span>挂载的视频根目录</span><code id="settings-root">/media</code></div><div class="settings-line"><span>NFO 格式</span><strong>Kodi XML · 本地元数据</strong></div><p class="muted">独立视频生成同名 .nfo；系列教程生成 tvshow.nfo 和每集同名 .nfo。未提供日期、评分或作者时不会自动补写。媒体库的具体导入效果需在选定播放器后验证。</p></div>
@@ -62,6 +67,16 @@
     <div id="series-fields" hidden><div class="section-divider">系列信息 <small>同系列视频共用</small></div><label>系列标题<input id="edit-show-title"></label><label>系列简介<textarea id="edit-show-plot" rows="3"></textarea></label><div class="form-row"><label>季数<input id="edit-season" type="number" min="0" max="9999"></label><label>集数<input id="edit-episode" type="number" min="0" max="9999"></label></div></div>
     <p id="editor-notes" class="hint"></p><details><summary>查看将发送给 AI 的资料</summary><pre id="source-preview">展开后读取文件名、字幕和简介。</pre></details><div class="form-actions"><button type="submit" class="primary">保存草稿</button><button id="preview-nfo" type="button" class="secondary">保存草稿并预览 NFO</button></div><div id="nfo-preview" hidden></div>
   </form></dialog>
+  <dialog id="cover-dialog" class="cover-dialog" aria-labelledby="cover-title"><form id="cover-form"><div class="dialog-heading"><h2 id="cover-title">查找视频封面</h2><button type="button" data-close="cover-dialog" class="icon-button" aria-label="关闭">×</button></div>
+    <p id="cover-video" class="file-path"></p><label>封面用途<select id="cover-scope"><option value="video">当前视频 / 本集封面</option><option value="series">系列封面（全系列共用）</option></select></label>
+    <div id="cover-current" class="cover-current" hidden></div><p id="cover-target" class="hint"></p>
+    <label>原课程 / 本集视频网页链接（可选）<input id="cover-source" type="url" placeholder="填写原网页地址，也支持公开图片直链"><small>填写链接时直接提取该页面封面；留空则联网搜索。</small></label>
+    <label>搜索词（可选）<input id="cover-query" maxlength="300" placeholder="留空由 AI 提炼；未启用 AI 时使用系列名和文件名"></label>
+    <label class="checkbox-label"><input id="cover-ai" type="checkbox" checked> 使用 AI 提炼搜索词并判断来源匹配度</label><p class="hint">会将课程名称、文件名和简介片段用于搜索 / AI 匹配。可能产生接口费用；AI 判断基于来源文字，仍需核对图片。</p>
+    <div class="form-actions"><button id="cover-search" type="submit" class="primary">联网查找封面</button><label class="snapshot-time">截图时间（秒）<input id="cover-seconds" type="number" min="0" max="86400" value="5" step="0.1"></label><button id="cover-snapshot" type="button" class="secondary">从本集截图</button></div>
+    <p id="cover-feedback" role="status" class="hint"></p><div id="cover-candidates" class="cover-grid"></div>
+    <label class="checkbox-label"><input id="cover-overwrite" type="checkbox"> 覆盖已有封面（先保留 .bak 备份）</label><div class="form-actions"><button id="cover-save" type="button" class="primary" disabled>保存选中封面</button><button type="button" data-close="cover-dialog" class="secondary">关闭</button></div>
+  </form></dialog>
   <dialog id="cleanup-dialog" aria-labelledby="cleanup-title"><form id="cleanup-form"><div class="dialog-heading"><h2 id="cleanup-title">清理不可访问视频</h2><button type="button" data-close="cleanup-dialog" class="icon-button" aria-label="关闭">×</button></div>
     <p id="cleanup-summary"></p><p class="muted">范围为整个视频库，不受当前筛选或勾选影响。确认后移除下列视频记录及其草稿；不删除视频、字幕或 NFO 文件。若文件只是暂时离线，请先恢复访问。</p>
     <ul id="cleanup-list" class="cleanup-list"></ul><div class="form-actions"><button id="cleanup-submit" type="submit" class="primary">确认清理记录</button><button type="button" data-close="cleanup-dialog" class="secondary">取消</button></div>
@@ -69,4 +84,5 @@
   <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-heading"><h2 id="batch-title"></h2><button type="button" data-close="batch-dialog" class="icon-button" aria-label="关闭">×</button></div><p id="batch-description" class="muted"></p><div class="notice" id="batch-notice"></div><label class="checkbox-label"><input id="overwrite" type="checkbox"><span id="overwrite-label"></span></label><div class="form-actions"><button id="batch-submit" type="submit" class="primary">开始处理</button><button type="button" data-close="batch-dialog" class="secondary">取消</button></div></form></dialog>
   <div id="toast" role="status" hidden></div>
   <script src="/app.js" defer></script>
+  <script src="/covers.js" defer></script>
 </body></html>

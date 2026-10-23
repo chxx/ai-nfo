@@ -9,7 +9,7 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/ai-nfo .
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata ffmpeg
 WORKDIR /app
 COPY --from=build /out/ai-nfo /app/ai-nfo
 ENV HOST=0.0.0.0 PORT=8787 MEDIA_ROOT=/media DATA_DIR=/data

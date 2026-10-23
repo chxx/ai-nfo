@@ -63,7 +63,7 @@ function renderVideos() {
   }
   $('video-list').innerHTML = videos.map(v => {
     const sequence = v.kind === 'episode' ? `${v.show?.title || '系列'} · S${v.season ?? '?'} E${v.episode ?? '?'}` : v.path;
-    return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button></td></tr>`;
+    return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>`;
   }).join('');
   renderSelection();
 }
@@ -97,6 +97,8 @@ function fillSettings() {
   const config = state.settings;
   $('provider').value = config.provider || 'compatible'; $('base-url').value = config.base_url || ''; $('model').value = config.model || '';
   $('api-key').value = ''; $('api-key').placeholder = config.has_key ? '已保存密钥，留空保持不变' : '填写密钥（本地服务可留空）';
+  $('search-provider').value = config.search_provider || 'none'; $('search-url').value = config.search_url || ''; $('search-key').value = ''; $('clear-search-key').checked = false;
+  $('search-key-hint').textContent = config.has_search_key ? '已保存搜索密钥，留空保持不变。' : '搜索密钥与文字模型密钥独立，保存在 NAS 本地。';
   $('json-mode').checked = config.json_mode !== false; $('clear-key').checked = false; $('test-result').textContent = ''; providerHint();
 }
 function page(name) {
@@ -166,7 +168,7 @@ async function saveDraft() {
 }
 async function saveSettings() {
   if (!$('settings-form').reportValidity()) return false;
-  state.settings = await api('/api/settings', {provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked});
+  state.settings = await api('/api/settings', {provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked, search_provider: $('search-provider').value, search_url: $('search-url').value, search_key: $('search-key').value, clear_search_key: $('clear-search-key').checked});
   fillSettings(); await refresh(); return true;
 }
 

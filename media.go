@@ -248,11 +248,12 @@ type Source struct {
 	Truncated bool   `json:"truncated"`
 }
 type Evidence struct {
-	Filename string   `json:"filename"`
-	Folder   string   `json:"folder"`
-	Kind     string   `json:"kind"`
-	Sources  []Source `json:"sources"`
-	Evidence string   `json:"evidence"`
+	Filename  string   `json:"filename"`
+	Folder    string   `json:"folder"`
+	Directory string   `json:"directory"`
+	Kind      string   `json:"kind"`
+	Sources   []Source `json:"sources"`
+	Evidence  string   `json:"evidence"`
 }
 
 func (s *Store) evidence(v Video) (Evidence, error) {
@@ -262,6 +263,7 @@ func (s *Store) evidence(v Video) (Evidence, error) {
 		return result, err
 	}
 	result.Folder = filepath.Base(filepath.Dir(p))
+	result.Directory = s.relative(filepath.Dir(p))
 	stem := strings.TrimSuffix(p, filepath.Ext(p))
 	candidates := []string{}
 	for _, ext := range []string{".srt", ".vtt", ".txt", ".description", ".info.json"} {
@@ -350,20 +352,8 @@ func (s *Store) preview(id string) ([]NFOFile, error) {
 	if v.Metadata == nil {
 		return nil, userError("请先生成或编辑元数据")
 	}
-	p, err := s.safe(v.Path, true)
-	if err != nil {
+	if err = s.checkVideoStem(v.Path); err != nil {
 		return nil, err
-	}
-	entries, err := os.ReadDir(filepath.Dir(p))
-	if err != nil {
-		return nil, err
-	}
-	stem := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-	for _, entry := range entries {
-		name := entry.Name()
-		if name != filepath.Base(p) && !entry.IsDir() && strings.TrimSuffix(name, filepath.Ext(name)) == stem && videoExtensions[strings.ToLower(filepath.Ext(name))] {
-			return nil, userError("同目录有同名不同扩展名的视频，会共用一个 NFO；请先区分文件名")
-		}
 	}
 	files, kind, showTitle := []NFOFile{}, "movie", ""
 	if v.Kind == "episode" {
@@ -377,20 +367,41 @@ func (s *Store) preview(id string) ([]NFOFile, error) {
 		if v.ShowPath == nil || v.Show == nil {
 			return nil, userError("系列信息缺失，请检查草稿")
 		}
-		text, err := nfoXML("tvshow", v.Show, identifier("show:"+*v.ShowPath), nil, nil, "")
+		text, err := nfoXML("tvshow", v.Show, identifier("show:"+*v.ShowPath), nil, nil, "", s.coverThumbnail(v, "series"))
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, NFOFile{filepath.ToSlash(filepath.Join(*v.ShowPath, "tvshow.nfo")), text})
 		kind, showTitle = "episodedetails", v.Show.Title
 	}
-	text, err := nfoXML(kind, v.Metadata, v.ID, v.Season, v.Episode, showTitle)
+	text, err := nfoXML(kind, v.Metadata, v.ID, v.Season, v.Episode, showTitle, s.coverThumbnail(v, "video"))
 	if err != nil {
 		return nil, err
 	}
 	return append(files, NFOFile{nfoPath(v.Path), text}), nil
 }
+func (s *Store) checkVideoStem(rel string) error {
+	p, err := s.safe(rel, true)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Dir(p))
+	if err != nil {
+		return err
+	}
+	stem := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+	for _, entry := range entries {
+		name := entry.Name()
+		if name != filepath.Base(p) && !entry.IsDir() && strings.TrimSuffix(name, filepath.Ext(name)) == stem && videoExtensions[strings.ToLower(filepath.Ext(name))] {
+			return userError("同目录有同名不同扩展名的视频，会共用 NFO 或封面；请先区分文件名")
+		}
+	}
+	return nil
+}
 func (s *Store) writeNFO(rel, text string, overwrite bool) (bool, error) {
+	return s.writeFile(rel, []byte(text), overwrite)
+}
+func (s *Store) writeFile(rel string, data []byte, overwrite bool) (bool, error) {
 	target, err := s.safe(rel, false)
 	if err != nil {
 		return false, err
@@ -403,7 +414,7 @@ func (s *Store) writeNFO(rel, text string, overwrite bool) (bool, error) {
 		return false, nil
 	}
 	if statErr == nil && !info.Mode().IsRegular() {
-		return false, userError("NFO 目标不是普通文件")
+		return false, userError("保存目标不是普通文件")
 	}
 	f, err := os.CreateTemp(filepath.Dir(target), ".ai-nfo-*.tmp")
 	if err != nil {
@@ -418,7 +429,7 @@ func (s *Store) writeNFO(rel, text string, overwrite bool) (bool, error) {
 	if err = f.Chmod(mode); err != nil {
 		return false, err
 	}
-	if _, err = f.WriteString(text); err != nil {
+	if _, err = f.Write(data); err != nil {
 		return false, err
 	}
 	if err = f.Sync(); err != nil {

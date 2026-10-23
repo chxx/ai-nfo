@@ -131,7 +131,7 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 				if err != nil {
 					return false, err
 				}
-				show, err = s.ai(s.ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "episode_filenames": names, "evidence": "只提供文件名目录，可能不是完整系列，请保守概括"})
+				show, err = s.ai(s.ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "evidence": "提供完整相对目录和文件名，可能不是完整系列；目录包含品牌或课程层级，请保守概括"})
 				if err != nil {
 					return false, err
 				}

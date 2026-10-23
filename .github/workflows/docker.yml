@@ -35,7 +35,9 @@ jobs:
           go test -race -count=1 ./...
 
       - name: Check browser JavaScript
-        run: node --check static/app.js
+        run: |
+          node --check static/app.js
+          node --check static/covers.js
 
       - name: Build test image
         run: docker build --tag ai-nfo:test .
@@ -56,6 +58,30 @@ jobs:
           curl --fail http://127.0.0.1:18787/ | grep -q 'AI NFO'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18787/api/state)" = 401
           docker exec ai-nfo-smoke /app/ai-nfo healthcheck
+
+      - name: Verify FFmpeg cover extraction
+        run: |
+          docker exec ai-nfo-smoke ffmpeg -nostdin -loglevel error -f lavfi -i color=c=blue:s=320x180:d=2 -c:v mpeg4 /media/smoke.mp4
+          node <<'JS'
+          (async () => {
+            const base = 'http://127.0.0.1:18787';
+            const login = await fetch(base + '/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: 'ci-only-test-password'})});
+            if (!login.ok) throw new Error('Login failed');
+            const cookie = login.headers.get('set-cookie').split(';')[0];
+            async function post(path, body) {
+              const response = await fetch(base + path, {method: 'POST', headers: {'Content-Type': 'application/json', Cookie: cookie}, body: JSON.stringify(body)});
+              const result = await response.json();
+              if (!response.ok) throw new Error(JSON.stringify(result));
+              return result;
+            }
+            const scan = await post('/api/scan', {path: '', kind: 'movie', recursive: true});
+            const image = await post('/api/covers/snapshot', {id: scan.ids[0], scope: 'video', seconds: 0.5});
+            if (image.width < 64 || image.kind !== 'snapshot') throw new Error('Invalid snapshot');
+            const saved = await post('/api/covers/save', {id: scan.ids[0], scope: 'video', candidate_id: image.id});
+            if (!saved.saved) throw new Error('Snapshot was not saved');
+            console.log('FFmpeg screenshot and cover saving passed');
+          })().catch(error => {console.error(error); process.exitCode = 1;});
+          JS
 
       - name: Collect logs and clean up
         if: always()
