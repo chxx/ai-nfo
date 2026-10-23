@@ -452,15 +452,16 @@ type SnapshotRequest struct {
 	Seconds float64 `json:"seconds"`
 }
 type limitedBuffer struct {
-	bytes.Buffer
-	limit int
+	buffer bytes.Buffer
+	limit  int
 }
 
+func (b *limitedBuffer) Bytes() []byte { return b.buffer.Bytes() }
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if len(p) > b.limit-b.Len() {
+	if len(p) > b.limit-b.buffer.Len() {
 		return 0, userError("截图超过大小限制")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 func (s *Store) snapshotCover(ctx context.Context, body SnapshotRequest) (CoverCandidate, error) {
 	if !s.coverMu.TryLock() {

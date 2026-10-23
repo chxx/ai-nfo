@@ -308,3 +308,14 @@ func TestCoverErrorsAndSnapshotMissingTool(t *testing.T) {
 		t.Fatal("negative seek accepted")
 	}
 }
+
+func TestScreenshotOutputLimit(t *testing.T) {
+	output := &limitedBuffer{limit: 4}
+	if _, ok := any(output).(io.ReaderFrom); ok {
+		t.Fatal("ReaderFrom must not bypass the output limit")
+	}
+	_, err := io.Copy(output, struct{ io.Reader }{strings.NewReader("too much screenshot data")})
+	if err == nil || len(output.Bytes()) > 4 {
+		t.Fatal("screenshot output was not bounded", err)
+	}
+}
