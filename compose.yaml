@@ -1,0 +1,36 @@
+services:
+  ai-nfo:
+    build: .
+    image: ai-nfo:local
+    container_name: ai-nfo
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:?请在 .env 中设置至少 8 位访问密码}
+      MEDIA_ROOT: /media
+      DATA_DIR: /data
+      TZ: Asia/Shanghai
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?请在 .env 中指定 NAS 视频目录}
+        target: /media
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NAS_DATA_PATH:?请在 .env 中指定应用数据目录}
+        target: /data
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

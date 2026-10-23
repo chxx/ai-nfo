@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="在 NAS 上整理视频资料，批量生成与编辑 NFO。">
+  <title>AI NFO · 视频资料工作台</title><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="login" class="login-screen" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">n.</div><p class="eyebrow">YOUR LOCAL VIDEO LIBRARY</p>
+      <h1>欢迎回到资料库</h1><p class="muted">输入部署时设置的访问密码。</p>
+      <label>访问密码<input id="password" type="password" required autocomplete="current-password"></label>
+      <button class="primary" type="submit">进入工作台 <span>→</span></button><p id="login-error" class="error" role="alert"></p>
+    </form>
+  </div>
+  <div id="workspace" class="shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="/"><span class="brand-mark">n.</span><span>AI NFO<small>视频资料工作台</small></span></a>
+      <p class="nav-label">工作空间</p>
+      <button class="nav active" id="nav-library"><span>▦</span> 视频库 <b id="nav-count">0</b></button>
+      <button class="nav" id="nav-jobs"><span>◷</span> 批量任务 <b id="job-count">0</b></button>
+      <button class="nav" id="nav-settings"><span>⚙</span> 模型设置</button>
+      <div class="sidebar-bottom"><span class="online-dot"></span> NAS 本地服务<p id="root-label">等待连接</p><button id="logout" class="text-button">退出登录</button></div>
+    </aside>
+    <main>
+      <header class="topbar"><span>工作空间 <span class="divider">/</span> <strong id="page-label">视频库</strong></span><span class="local-label">本地文件 · 由你掌控</span></header>
+      <section id="library-page" class="page">
+        <div class="page-heading"><div><p class="eyebrow">MAKE YOUR COLLECTION FINDABLE</p><h1>让每个视频，都有迹可循<span class="accent">。</span></h1><p class="muted">从零散收藏到成套教程，用 AI 整理你的专属资料库。</p></div><button id="open-scan" class="primary"><span>＋</span> 添加视频目录</button></div>
+        <div class="stats"><div><span>视频总数</span><strong id="stat-total">0</strong><small>已加入工作台</small></div><div><span>等待整理</span><strong id="stat-new">0</strong><small>从文件信息开始</small></div><div><span>待确认草稿</span><strong id="stat-draft">0</strong><small>检查后即可写入</small></div><div><span>已保存 NFO</span><strong id="stat-saved">0</strong><small>本工具已写入</small></div></div>
+        <div id="job-banner" class="job-banner" hidden><div><strong id="job-title"></strong><p id="job-description"></p><progress id="job-progress" max="100" value="0"></progress></div><button id="cancel-job" class="secondary">取消任务</button></div>
+        <div id="mount-warning" class="notice warning" hidden>未找到视频根目录。请先在 Container Station 中把视频共享文件夹挂载到 /media，再刷新页面。</div>
+        <div id="model-notice" class="notice" hidden><span>准备好开始了吗？先连接你的 AI 模型，再选择视频生成资料。</span><button id="setup-model" class="text-button">配置模型 →</button></div>
+        <div class="library-card">
+          <div class="library-toolbar"><div class="tabs" role="group" aria-label="视频类型"><button data-kind="all" class="selected">全部视频</button><button data-kind="movie">独立视频</button><button data-kind="episode">系列教程</button></div><label class="search"><span>⌕</span><input id="search" type="search" placeholder="搜索标题、文件名或目录" aria-label="搜索视频"></label></div>
+          <div class="filterbar"><div class="filters"><select id="status-filter" aria-label="状态筛选"><option value="all">所有状态</option><option value="new">等待整理</option><option value="draft">待确认草稿</option><option value="saved">已保存</option><option value="error">处理失败</option><option value="existing">已有 NFO 文件</option></select><span id="result-count">0 个视频</span></div><div class="batch-actions"><span id="selected-count">未选择</span><button id="generate" class="primary small" disabled>✧ AI 生成</button><button id="write" class="secondary small" disabled>保存 NFO</button></div></div>
+          <div class="table-wrap"><table><thead><tr><th class="check"><input id="select-all" type="checkbox" aria-label="选择筛选结果中的所有视频"></th><th>视频 / 系列</th><th>资料状态</th><th>文件大小</th><th>操作</th></tr></thead><tbody id="video-list"></tbody></table></div>
+          <div id="empty" class="empty"><div class="empty-graphic"><span>▤</span><i>✧</i></div><h2>从一个视频目录开始</h2><p>选择已挂载的 NAS 文件夹。视频保留在原处，<br>生成的资料会先保存为可编辑草稿。</p><button id="empty-scan" class="secondary">选择视频目录 <span>→</span></button><div class="steps"><span><b>01</b> 扫描目录</span><span><b>02</b> AI 整理</span><span><b>03</b> 确认并保存</span></div></div>
+          <footer class="table-footer"><span>支持 MP4、MKV、MOV、WebM 等常见格式</span><span>原视频保持原样</span></footer>
+        </div>
+        <p class="page-footnote">第一版根据文件名、目录、外置字幕与简介生成资料。未提供的视频内容不会被自动识别。</p>
+      </section>
+      <section id="jobs-page" class="page" hidden><div class="page-heading"><div><p class="eyebrow">BACKGROUND TASKS</p><h1>批量任务</h1><p class="muted">关闭网页后，NAS 服务仍会继续处理任务。</p></div></div><div id="jobs-list" class="jobs-list"></div></section>
+      <section id="settings-page" class="page" hidden><div class="page-heading"><div><p class="eyebrow">BRING YOUR OWN MODEL</p><h1>连接你的 AI</h1><p class="muted">使用可配置的兼容接口，或连接局域网中的 Ollama。</p></div></div>
+        <form id="settings-form" class="settings-card"><h2>模型连接</h2><p class="muted">生成时会向此接口发送所选视频的文件名、目录名，以及截取的字幕和简介文本。</p>
+          <label>接口类型<select id="provider"><option value="compatible">Chat Completions 兼容接口</option><option value="ollama">Ollama 原生接口</option></select></label>
+          <label>接口基础地址<input id="base-url" type="url" placeholder="https://api.example.com/v1" required><small id="url-help">填写基础地址，程序会追加 /chat/completions。</small></label>
+          <div class="form-row"><label>模型名称<input id="model" placeholder="填写服务商提供的模型 ID" required></label><label>API Key<input id="api-key" type="password" autocomplete="new-password" placeholder="填写密钥"><small id="key-hint">密钥仅保存在 NAS 数据目录，不会返回网页。</small></label></div>
+          <label class="checkbox-label"><input id="json-mode" type="checkbox" checked> 请求 JSON 模式（接口不支持时可关闭）</label><label class="checkbox-label"><input id="clear-key" type="checkbox"> 清除已保存的 API Key</label>
+          <div class="form-actions"><button type="submit" class="primary">保存配置</button><button id="test-model" type="button" class="secondary">测试连接</button><span id="test-result" aria-live="polite"></span></div>
+        </form>
+        <div class="settings-card compact"><h2>存储与格式</h2><div class="settings-line"><span>挂载的视频根目录</span><code id="settings-root">/media</code></div><div class="settings-line"><span>NFO 格式</span><strong>Kodi XML · 本地元数据</strong></div><p class="muted">独立视频生成同名 .nfo；系列教程生成 tvshow.nfo 和每集同名 .nfo。未提供日期、评分或作者时不会自动补写。媒体库的具体导入效果需在选定播放器后验证。</p></div>
+      </section>
+    </main>
+  </div>
+  <dialog id="scan-dialog"><form id="scan-form"><div class="dialog-heading"><div><p class="eyebrow">ADD TO YOUR LIBRARY</p><h2>选择 NAS 视频目录</h2></div><button type="button" data-close="scan-dialog" class="icon-button" aria-label="关闭">×</button></div><p class="muted">浏览部署时挂载的共享文件夹。扫描不会移动或修改视频。</p>
+    <div class="path-bar"><button type="button" id="folder-up" class="secondary small" aria-label="上一级目录">↑</button><input id="folder-path" aria-label="相对于根目录的路径" placeholder="根目录（输入相对路径）"><button type="button" id="folder-go" class="secondary small">前往</button></div><p id="folder-location" class="folder-location"></p><div id="folder-list" class="folder-list"></div>
+    <label>此目录的内容<select id="scan-kind"><option value="movie">独立视频 · 每个文件单独整理</option><option value="episode">一个系列 / 一套教程 · 此目录作为系列根目录</option></select></label><p id="series-help" class="hint" hidden>请选择一套教程所在的目录。S01E01 或开头的数字可识别为集数；无法识别时需要手动填写。多个系列请分别扫描。</p><label class="checkbox-label"><input id="recursive" type="checkbox" checked> 包含子目录中的视频</label><p class="hint">重新扫描会保留已有条目的分类和草稿；请在首次扫描前选好目录类型。</p><div class="form-actions"><button type="submit" id="scan-submit" class="primary">扫描此目录</button><button type="button" data-close="scan-dialog" class="secondary">取消</button><span id="scan-feedback" aria-live="polite"></span></div>
+  </form></dialog>
+  <dialog id="editor-dialog" class="editor-dialog"><form id="editor-form"><div class="dialog-heading"><div><p class="eyebrow">REVIEW YOUR METADATA</p><h2>编辑视频资料</h2></div><button type="button" data-close="editor-dialog" class="icon-button" aria-label="关闭">×</button></div><p id="editor-path" class="file-path"></p><div id="editor-warning" class="notice warning" hidden></div>
+    <label>标题<input id="edit-title" required maxlength="300"></label><label>简介<textarea id="edit-plot" rows="5" maxlength="12000" placeholder="根据实际内容填写简介"></textarea></label><div class="form-row"><label>分类<input id="edit-genres" placeholder="用逗号分隔"></label><label>标签<input id="edit-tags" placeholder="用逗号分隔"></label></div>
+    <div id="series-fields" hidden><div class="section-divider">系列信息 <small>同系列视频共用</small></div><label>系列标题<input id="edit-show-title"></label><label>系列简介<textarea id="edit-show-plot" rows="3"></textarea></label><div class="form-row"><label>季数<input id="edit-season" type="number" min="0" max="9999"></label><label>集数<input id="edit-episode" type="number" min="0" max="9999"></label></div></div>
+    <p id="editor-notes" class="hint"></p><details><summary>查看将发送给 AI 的资料</summary><pre id="source-preview">展开后读取文件名、字幕和简介。</pre></details><div class="form-actions"><button type="submit" class="primary">保存草稿</button><button id="preview-nfo" type="button" class="secondary">保存草稿并预览 NFO</button></div><div id="nfo-preview" hidden></div>
+  </form></dialog>
+  <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-heading"><h2 id="batch-title"></h2><button type="button" data-close="batch-dialog" class="icon-button" aria-label="关闭">×</button></div><p id="batch-description" class="muted"></p><div class="notice" id="batch-notice"></div><label class="checkbox-label"><input id="overwrite" type="checkbox"><span id="overwrite-label"></span></label><div class="form-actions"><button id="batch-submit" type="submit" class="primary">开始处理</button><button type="button" data-close="batch-dialog" class="secondary">取消</button></div></form></dialog>
+  <div id="toast" role="status" hidden></div>
+  <script src="/app.js" defer></script>
+</body></html>

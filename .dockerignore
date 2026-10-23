@@ -1,0 +1,10 @@
+.git
+.env
+data
+media
+tests
+__pycache__
+*.pyc
+*.log
+dist
+artifacts

@@ -1,0 +1,137 @@
+name: Test and publish container
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check browser JavaScript
+        run: node --check static/app.js
+
+      - name: Build test image
+        run: docker build --tag ai-nfo:test .
+
+      - name: Run tests with the image's Python runtime
+        run: >-
+          docker run --rm --read-only --tmpfs /tmp
+          --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/app/tests,readonly"
+          ai-nfo:test python -m unittest discover -s tests -v
+
+      - name: Start container with deployment restrictions
+        run: |
+          mkdir -p "$RUNNER_TEMP/ai-nfo-media"
+          docker run -d --name ai-nfo-smoke \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --tmpfs /tmp --tmpfs /data \
+            --mount "type=bind,source=$RUNNER_TEMP/ai-nfo-media,target=/media" \
+            --env APP_PASSWORD=ci-only-test-password \
+            --publish 127.0.0.1:18787:8787 ai-nfo:test
+
+      - name: Verify health, page and authentication
+        run: |
+          python3 - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          base = 'http://127.0.0.1:18787'
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(base + '/health', timeout=2) as response:
+                      assert json.load(response)['ok'] is True
+                  break
+              except (OSError, ValueError):
+                  if attempt == 29:
+                      raise
+                  time.sleep(1)
+          with urllib.request.urlopen(base, timeout=3) as response:
+              assert 'AI NFO' in response.read().decode()
+          try:
+              urllib.request.urlopen(base + '/api/state', timeout=3)
+          except urllib.error.HTTPError as error:
+              assert error.code == 401, error.code
+          else:
+              raise AssertionError('Unauthenticated API access must be denied')
+          print('Container smoke check passed')
+          PY
+
+      - name: Collect logs and clean up
+        if: always()
+        run: |
+          docker logs ai-nfo-smoke 2>/dev/null || true
+          docker rm -f ai-nfo-smoke 2>/dev/null || true
+
+  publish:
+    needs: verify
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=AI NFO
+            org.opencontainers.image.description=Self-hosted NAS video metadata workbench
+
+      - name: Build and publish AMD64 and ARM64 images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
