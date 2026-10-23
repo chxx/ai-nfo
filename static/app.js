@@ -85,7 +85,7 @@ function renderJobs() {
     $('cancel-job').disabled = job.status === 'cancelling';
     $('cancel-job').textContent = job.status === 'cancelling' ? '等待当前请求结束' : '取消任务';
   }
-  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${jobTitle(j.action)}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p><div class="form-actions">${jobActive(j) ? `<button class="secondary small" data-cancel-job="${j.id}" ${j.status === 'cancelling' ? 'disabled' : ''}>取消此任务</button>` : ''}${j.action === 'covers' ? `<button class="secondary small" data-cover-detail="${j.id}">查看封面明细</button>${!jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-covers="${j.id}">重试未完成封面</button>` : ''}` : ''}</div></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
+  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${jobTitle(j.action)}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p><div class="form-actions">${jobActive(j) ? `<button class="secondary small" data-cancel-job="${j.id}" ${j.status === 'cancelling' ? 'disabled' : ''}>取消此任务</button>` : ''}${j.action !== 'covers' && !jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-job="${j.id}">重试失败 / 未完成项</button>` : ''}${j.action === 'covers' ? `<button class="secondary small" data-cover-detail="${j.id}">查看封面明细</button>${!jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-covers="${j.id}">重试未完成封面</button>` : ''}` : ''}</div></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
 }
 async function refresh() {
   if (state.loading) return;
@@ -105,6 +105,7 @@ async function refresh() {
 function fillSettings() {
   const config = state.settings;
   $('concurrency').value = config.concurrency || 1;
+  $('retry-count').value = config.retry_count ?? 2;
   $('provider').value = config.provider || 'compatible'; $('base-url').value = config.base_url || ''; $('model').value = config.model || '';
   $('api-key').value = ''; $('api-key').placeholder = config.has_key ? '已保存密钥，留空保持不变' : '填写密钥（本地服务可留空）';
   $('search-provider').value = config.search_provider || 'model'; $('search-url').value = config.search_url || ''; $('search-key').value = ''; $('clear-search-key').checked = false;
@@ -185,7 +186,7 @@ async function saveDraft() {
 }
 async function saveSettings() {
   if (!$('settings-form').reportValidity()) return false;
-  state.settings = await api('/api/settings', {concurrency: Number($('concurrency').value), provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked, search_provider: $('search-provider').value, search_url: $('search-url').value, search_key: $('search-key').value, clear_search_key: $('clear-search-key').checked});
+  state.settings = await api('/api/settings', {retry_count: Number($('retry-count').value), concurrency: Number($('concurrency').value), provider: $('provider').value, base_url: $('base-url').value, model: $('model').value, api_key: $('api-key').value, json_mode: $('json-mode').checked, clear_key: $('clear-key').checked, search_provider: $('search-provider').value, search_url: $('search-url').value, search_key: $('search-key').value, clear_search_key: $('clear-search-key').checked});
   fillSettings(); await refresh(); return true;
 }
 
@@ -331,8 +332,9 @@ async function loadCoverTasks() {
   $('cover-task-list').innerHTML = items.map(t => '<li><strong>' + escapeHtml(t.scope === 'series' ? '系列封面' : '视频封面') + ' · ' + escapeHtml(labels[t.status] || t.status) + '</strong><br>' + escapeHtml(t.path) + (t.error ? '<br>' + escapeHtml(t.error) : '') + '</li>').join('');
 }
 $('jobs-list').onclick = run(async event => {
-  const cancel = event.target.closest('[data-cancel-job]'), retry = event.target.closest('[data-retry-covers]'), detail = event.target.closest('[data-cover-detail]');
+  const cancel = event.target.closest('[data-cancel-job]'), retry = event.target.closest('[data-retry-covers]'), detail = event.target.closest('[data-cover-detail]'), retryJob = event.target.closest('[data-retry-job]');
   if (cancel) { await api('/api/cancel', {id: cancel.dataset.cancelJob}); await refresh(); }
   if (retry) { retry.disabled = true; try { const result = await api('/api/cover-jobs/retry', {id: retry.dataset.retryCovers}); await refresh(); toast(result.id ? '未完成封面已加入重试队列' : '没有需要重试的封面，或已在队列中'); } finally { retry.disabled = false; } }
+  if (retryJob) { retryJob.disabled = true; try { const result = await api('/api/jobs/retry', {id: retryJob.dataset.retryJob}); await refresh(); toast(result.id ? '失败或未完成项已加入重试队列' : '没有可重试项：可能已重试、记录已删除，或旧任务没有逐项记录'); } finally { retryJob.disabled = false; } }
   if (detail) { coverDetailID = detail.dataset.coverDetail; await loadCoverTasks(); $('cover-tasks-dialog').showModal(); }
 });

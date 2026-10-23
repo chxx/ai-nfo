@@ -162,17 +162,15 @@ func (s *Store) searchPages(ctx context.Context, query string) ([]webPage, error
 		return nil, userError("搜索接口地址无效")
 	}
 	req.Header.Set("Accept", "application/json")
-	response, err := s.client.Do(req)
+	status, b, err := s.requestBytes(req, c.RetryCount)
 	if err != nil {
-		return nil, userError("搜索接口连接失败或超时")
+		if req.Context().Err() != nil {
+			return nil, req.Context().Err()
+		}
+		return nil, userError("搜索接口连接或读取失败，请检查网络或稍后重试")
 	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		return nil, userError(fmt.Sprintf("搜索接口返回 HTTP %d；请检查密钥、地址，或 SearXNG 是否允许 JSON 输出", response.StatusCode))
-	}
-	b, err := io.ReadAll(io.LimitReader(response.Body, 2000001))
-	if err != nil || len(b) > 2000000 {
-		return nil, userError("搜索响应过大或读取失败")
+	if status != 200 {
+		return nil, userError(fmt.Sprintf("搜索接口返回 HTTP %d；请检查服务限流、额度、接口配置，或稍后重试", status))
 	}
 	var result struct {
 		Results []webPage `json:"results"`

@@ -63,6 +63,9 @@ func (l *workLimiter) acquire(ctx, service context.Context, wait bool) (func(), 
 }
 
 func (c *Config) validateConcurrency() error {
+	if c.RetryCount < 0 || c.RetryCount > 5 {
+		return userError("自动重试次数须为 0–5 的整数")
+	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 1
 	}

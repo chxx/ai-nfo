@@ -32,13 +32,18 @@ CREATE TABLE IF NOT EXISTS jobs (
  id TEXT PRIMARY KEY, action TEXT, status TEXT, ids TEXT,
  total INTEGER, done INTEGER DEFAULT 0, failed INTEGER DEFAULT 0,
  skipped INTEGER DEFAULT 0, message TEXT DEFAULT '', created REAL);
+CREATE TABLE IF NOT EXISTS job_items (
+ job_id TEXT NOT NULL, video_id TEXT NOT NULL, status TEXT NOT NULL,
+ overwrite INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', retry_job_id TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(job_id,video_id));
+UPDATE job_items SET status='interrupted',error='服务重启，等待重试' WHERE status IN ('queued','running');
 CREATE TABLE IF NOT EXISTS cover_tasks (
  id TEXT PRIMARY KEY, job_id TEXT NOT NULL, video_id TEXT NOT NULL,
  owner TEXT NOT NULL, scope TEXT NOT NULL, path TEXT NOT NULL,
  status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '');
 UPDATE cover_tasks SET status='interrupted',error='服务重启，等待重试' WHERE status IN ('queued','running');
 CREATE UNIQUE INDEX IF NOT EXISTS cover_tasks_active_owner ON cover_tasks(owner) WHERE status IN ('queued','running');
-UPDATE jobs SET status='interrupted',message='服务已重启；已完成结果保留，封面可重试未完成项，文字可重新选择剩余条目执行'
+UPDATE jobs SET status='interrupted',message='服务已重启；已完成结果保留，可重试未完成项'
  WHERE status IN ('queued','running','cancelling');
 UPDATE videos SET status='error',error='生成被服务重启中断，请重试' WHERE status='generating';`
 
@@ -53,7 +58,7 @@ type Store struct {
 	coverMu      sync.RWMutex
 	coverLimiter *workLimiter
 	aiLimiter    *workLimiter                  // Shared by metadata generation and model-powered cover operations.
-	coverCancels map[string]context.CancelFunc // Guarded by mu.
+	jobCancels   map[string]context.CancelFunc // Guarded by mu.
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -83,7 +88,7 @@ func newStore(root, data string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Store{root: root, data: data, db: db, config: Config{Provider: "compatible", JSONMode: true}}
+	s := &Store{root: root, data: data, db: db, config: Config{Provider: "compatible", JSONMode: true, RetryCount: 2}}
 	if b, e := os.ReadFile(filepath.Join(data, "settings.json")); e == nil {
 		if err = json.Unmarshal(b, &s.config); err != nil {
 			db.Close()
@@ -100,7 +105,7 @@ func newStore(root, data string) (*Store, error) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.coverLimiter = newWorkLimiter(s.config.Concurrency)
 	s.aiLimiter = newWorkLimiter(s.config.Concurrency)
-	s.coverCancels = make(map[string]context.CancelFunc)
+	s.jobCancels = make(map[string]context.CancelFunc)
 	s.client = &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	s.webClient = publicWebClient()
 	return s, nil

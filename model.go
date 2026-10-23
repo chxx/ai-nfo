@@ -115,6 +115,7 @@ type Job struct {
 	Created float64 `json:"created"`
 }
 type Config struct {
+	RetryCount     int    `json:"retry_count"`
 	Concurrency    int    `json:"concurrency"`
 	Provider       string `json:"provider"`
 	BaseURL        string `json:"base_url"`
@@ -127,7 +128,7 @@ type Config struct {
 }
 
 func (c Config) public() map[string]any {
-	return map[string]any{"concurrency": c.Concurrency, "provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != "", "search_provider": c.SearchProvider, "search_url": c.SearchURL, "has_search_key": c.SearchKey != ""}
+	return map[string]any{"retry_count": c.RetryCount, "concurrency": c.Concurrency, "provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != "", "search_provider": c.SearchProvider, "search_url": c.SearchURL, "has_search_key": c.SearchKey != ""}
 }
 
 type NFOFile struct {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -55,20 +54,15 @@ func (s *Store) aiJSON(ctx context.Context, system string, evidence any, output 
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	response, err := s.client.Do(req)
+	status, raw, err := s.requestBytes(req, c.RetryCount)
 	if err != nil {
-		return userError("AI 接口连接失败或超时，请检查 NAS 网络和接口地址")
+		if req.Context().Err() != nil {
+			return req.Context().Err()
+		}
+		return userError("AI 接口连接或读取失败，请检查网络或稍后重试")
 	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return userError(fmt.Sprintf("AI 接口返回 HTTP %d；请核对接口地址、模型、密钥或 JSON 模式", response.StatusCode))
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 2000001))
-	if err != nil {
-		return userError("读取 AI 返回内容失败")
-	}
-	if len(raw) > 2000000 {
-		return userError("AI 返回内容过大")
+	if status < 200 || status >= 300 {
+		return userError(fmt.Sprintf("AI 接口返回 HTTP %d；请检查服务限流、额度、接口配置，或稍后重试", status))
 	}
 	var result struct {
 		Message struct{ Content string }

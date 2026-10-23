@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -107,17 +106,15 @@ func (s *Store) modelSearchPages(ctx context.Context, c Config, query string) ([
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
-	response, err := s.client.Do(req)
+	status, raw, err := s.requestBytes(req, c.RetryCount)
 	if err != nil {
-		return nil, userError("AI 联网搜索连接失败或超时，请检查 CodexProxy / 模型服务")
+		if req.Context().Err() != nil {
+			return nil, req.Context().Err()
+		}
+		return nil, userError("AI 联网搜索连接或读取失败，请检查网络或稍后重试")
 	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		return nil, userError(fmt.Sprintf("AI 联网搜索返回 HTTP %d；请确认接口支持 /responses 和 web_search，且当前模型与密钥可用", response.StatusCode))
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 2000001))
-	if err != nil || len(raw) > 2000000 {
-		return nil, userError("AI 联网搜索响应过大或读取失败")
+	if status != 200 {
+		return nil, userError(fmt.Sprintf("AI 联网搜索返回 HTTP %d；请检查服务限流、额度、接口配置，或稍后重试", status))
 	}
 	return parseSearchResponse(raw)
 }

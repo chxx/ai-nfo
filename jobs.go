@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 )
 
@@ -34,6 +35,10 @@ func (s *Store) startJob(body JobRequest) (map[string]string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.startJobLocked(body, "")
+}
+
+func (s *Store) startJobLocked(body JobRequest, retryOf string) (map[string]string, error) {
 	if s.ctx.Err() != nil {
 		return nil, userError("服务正在关闭")
 	}
@@ -77,6 +82,18 @@ func (s *Store) startJob(body JobRequest) (map[string]string, error) {
 			return nil, err
 		}
 	}
+	if body.Action != "covers" {
+		for _, vid := range ids {
+			if _, err = tx.Exec("INSERT INTO job_items(job_id,video_id,status,overwrite) VALUES(?,?,'queued',?)", id, vid, body.Overwrite); err != nil {
+				return nil, err
+			}
+			if retryOf != "" {
+				if _, err = tx.Exec("UPDATE job_items SET retry_job_id=? WHERE job_id=? AND video_id=?", id, retryOf, vid); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	coverID, tasks, err := queueCoverTasks(tx, targets)
 	if err != nil {
 		return nil, err
@@ -88,48 +105,139 @@ func (s *Store) startJob(body JobRequest) (map[string]string, error) {
 	if body.Action == "covers" {
 		return map[string]string{"id": coverID}, nil
 	}
-	s.wg.Add(1)
-	go func() { defer s.wg.Done(); s.runJob(id, body.Action, ids, body.Overwrite) }()
+	s.launchTextJob(id, body.Action, ids, body.Overwrite)
 	return map[string]string{"id": id, "cover_job_id": coverID}, nil
 }
 func (s *Store) cancelJob(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec("UPDATE jobs SET status='cancelling' WHERE id=? AND status IN ('queued','running')", id)
-	if cancel := s.coverCancels[id]; cancel != nil {
+	if cancel := s.jobCancels[id]; cancel != nil {
 		cancel()
 	}
 	return err
 }
-func (s *Store) runJob(id, action string, ids []string, overwrite bool) {
-	s.db.Exec("UPDATE jobs SET status=CASE WHEN status='cancelling' THEN status ELSE 'running' END WHERE id=?", id)
+func (s *Store) launchTextJob(id, action string, ids []string, overwrite bool) {
+	ctx, cancel := context.WithCancel(s.ctx)
+	s.jobCancels[id] = cancel
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer cancel()
+		s.runJob(s.retryContext(ctx, id), id, action, ids, overwrite)
+		s.mu.Lock()
+		delete(s.jobCancels, id)
+		s.mu.Unlock()
+	}()
+}
+
+func (s *Store) runJob(ctx context.Context, id, action string, ids []string, overwrite bool) {
+	s.db.Exec("UPDATE jobs SET status='running' WHERE id=? AND status='queued'", id)
+	defer func() {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+		terminal := "failed"
+		message := "处理被中断，请重试"
+		if ctx.Err() != nil {
+			terminal = "cancelled"
+			message = "已取消，等待重试"
+		}
+		if _, err = tx.Exec("UPDATE job_items SET status=?,error=? WHERE job_id=? AND status IN ('queued','running')", terminal, message, id); err != nil {
+			return
+		}
+		if _, err = tx.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM job_items WHERE job_id=? AND status IN ('completed','skipped','failed')),failed=(SELECT COUNT(*) FROM job_items WHERE job_id=? AND status='failed'),skipped=(SELECT COUNT(*) FROM job_items WHERE job_id=? AND status='skipped') WHERE id=?", id, id, id, id); err != nil {
+			return
+		}
+		if ctx.Err() != nil {
+			_, err = tx.Exec("UPDATE jobs SET status='cancelled',message='已取消；已完成结果保留，可重试未完成项' WHERE id=?", id)
+		} else {
+			_, err = tx.Exec("UPDATE jobs SET status=CASE WHEN failed>0 THEN 'partial' ELSE 'completed' END,message=CASE WHEN failed=0 THEN '任务已完成' ELSE COALESCE((SELECT error FROM job_items WHERE job_id=? AND status='failed' LIMIT 1),message) END WHERE id=?", id, id)
+		}
+		if err == nil {
+			tx.Commit()
+		}
+	}()
 	shows := map[string]bool{}
 	for _, vid := range ids {
-		var status string
-		if err := s.db.QueryRow("SELECT status FROM jobs WHERE id=?", id).Scan(&status); err != nil {
+		if ctx.Err() != nil {
 			return
 		}
-		if status == "cancelling" || s.ctx.Err() != nil {
-			s.db.Exec("UPDATE jobs SET status='cancelled',message='任务已取消；已经完成的结果保留' WHERE id=?", id)
+		if _, err := s.db.Exec("UPDATE job_items SET status='running' WHERE job_id=? AND video_id=?", id, vid); err != nil {
 			return
 		}
-		skipped, err := s.processVideo(vid, action, overwrite, shows)
+		skipped, err := s.processVideo(ctx, vid, action, overwrite, shows)
+		if err != nil && ctx.Err() != nil {
+			s.db.Exec("UPDATE videos SET status='error',error='任务已取消，请重试' WHERE id=? AND status='generating'", vid)
+			return
+		}
+		status, message, failed, skip := "completed", "", 0, 0
 		if err != nil {
-			message := publicError(err)
+			status, message, failed = "failed", publicError(err), 1
 			s.db.Exec("UPDATE videos SET status='error',error=? WHERE id=?", message, vid)
-			s.db.Exec("UPDATE jobs SET failed=failed+1,message=? WHERE id=?", message, id)
+		} else if skipped {
+			status, skip = "skipped", 1
 		}
-		n := 0
-		if skipped {
-			n = 1
+		tx, e := s.db.Begin()
+		if e != nil {
+			return
 		}
-		if _, err = s.db.Exec("UPDATE jobs SET done=done+1,skipped=skipped+? WHERE id=?", n, id); err != nil {
+		_, e = tx.Exec("UPDATE job_items SET status=?,error=? WHERE job_id=? AND video_id=?", status, message, id, vid)
+		if e == nil {
+			_, e = tx.Exec("UPDATE jobs SET done=done+1,failed=failed+?,skipped=skipped+?,message=CASE WHEN ?<>'' THEN ? ELSE message END WHERE id=?", failed, skip, message, message, id)
+		}
+		if e != nil {
+			tx.Rollback()
+			return
+		}
+		if tx.Commit() != nil {
 			return
 		}
 	}
-	s.db.Exec("UPDATE jobs SET status=CASE WHEN status='cancelling' THEN 'cancelled' WHEN failed>0 THEN 'partial' ELSE 'completed' END WHERE id=?", id)
 }
-func (s *Store) processVideo(id, action string, overwrite bool, shows map[string]bool) (bool, error) {
+
+func (s *Store) retryJob(id string) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var action, status string
+	if err := s.db.QueryRow("SELECT action,status FROM jobs WHERE id=?", id).Scan(&action, &status); err != nil {
+		return nil, userError("找不到任务")
+	}
+	if action != "generate" && action != "save" {
+		return nil, userError("请使用封面任务的重试入口")
+	}
+	if status == "queued" || status == "running" || status == "cancelling" {
+		return nil, userError("请等待任务结束后再重试")
+	}
+	rows, err := s.db.Query("SELECT i.video_id,i.overwrite FROM job_items i JOIN videos v ON v.id=i.video_id WHERE i.job_id=? AND i.status IN ('failed','cancelled','interrupted') AND i.retry_job_id='' ORDER BY v.path", id)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	overwrite := false
+	for rows.Next() {
+		var vid string
+		if err = rows.Scan(&vid, &overwrite); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, vid)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return map[string]string{"id": ""}, nil
+	}
+	auto := false
+	return s.startJobLocked(JobRequest{Action: action, IDs: ids, Overwrite: overwrite, AutoCovers: &auto}, id)
+}
+
+func (s *Store) processVideo(ctx context.Context, id, action string, overwrite bool, shows map[string]bool) (bool, error) {
 	v, err := s.getVideo(id)
 	if err != nil {
 		return false, err
@@ -172,7 +280,7 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 				if err != nil {
 					return false, err
 				}
-				show, err = s.ai(s.ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整系列；内嵌标签仅来自当前单集，不能代表整个系列；请保守概括"})
+				show, err = s.ai(ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整系列；内嵌标签仅来自当前单集，不能代表整个系列；请保守概括"})
 				if err != nil {
 					return false, err
 				}
@@ -181,9 +289,12 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 				}
 			}
 		}
-		m, err := s.ai(s.ctx, evidence)
+		m, err := s.ai(ctx, evidence)
 		if err != nil {
 			return false, err
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err()
 		}
 		_, err = s.db.Exec("UPDATE videos SET metadata=?,status='draft',error='',updated=? WHERE id=?", encode(m), now(), id)
 		return false, err
@@ -194,6 +305,9 @@ func (s *Store) processVideo(id, action string, overwrite bool, shows map[string
 	}
 	episodeWritten, showSkipped := false, false
 	for _, file := range files {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		isShow := file.Path != nfoPath(v.Path)
 		if wrote, seen := shows[file.Path]; isShow && seen {
 			showSkipped = !wrote

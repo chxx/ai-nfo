@@ -427,7 +427,8 @@ func TestJobCancellationAndMutualExclusion(t *testing.T) {
 	}
 	close(release)
 	job := waitJob(t, s, id)
-	if job.Status != "cancelled" || job.Done != 1 || calls.Load() != 1 {
+	// Cancellation now interrupts the in-flight request, including retry waits.
+	if job.Status != "cancelled" || job.Done != 0 || calls.Load() != 1 {
 		t.Fatal(job)
 	}
 }

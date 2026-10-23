@@ -86,14 +86,14 @@ func (s *Store) launchCoverJob(id string, tasks []CoverTask) {
 		return
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	s.coverCancels[id] = cancel
+	s.jobCancels[id] = cancel
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		defer cancel()
-		s.runCoverJob(ctx, id, tasks)
+		s.runCoverJob(s.retryContext(ctx, id), id, tasks)
 		s.mu.Lock()
-		delete(s.coverCancels, id)
+		delete(s.jobCancels, id)
 		s.mu.Unlock()
 	}()
 }
@@ -167,7 +167,7 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 	} else {
 		// Unexpected storage failures must not look like successful completion.
 		s.db.Exec("UPDATE cover_tasks SET status='failed',error='处理被中断，请重试' WHERE job_id=? AND status IN ('queued','running')", id)
-		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END WHERE id=?", id, id, id, id)
+		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END,message=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN message ELSE '封面任务已完成，已有封面保留' END WHERE id=?", id, id, id, id, id)
 	}
 }
 

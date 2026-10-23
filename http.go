@@ -335,6 +335,14 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.retryCoverJob(body.ID)
+		case "/api/jobs/retry":
+			var body struct {
+				ID string `json:"id"`
+			}
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.retryJob(body.ID)
 		}
 	}
 	return nil, nil
