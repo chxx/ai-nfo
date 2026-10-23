@@ -18,6 +18,10 @@ type CleanupPreview struct {
 type CleanupRequest struct {
 	IDs []string `json:"ids"`
 }
+type ClearRecordsRequest struct {
+	IDs []string `json:"ids"`
+	All bool     `json:"all"`
+}
 type CleanupResult struct {
 	Removed int `json:"removed"`
 	Skipped int `json:"skipped"`
@@ -75,23 +79,55 @@ func (s *Store) unavailableVideos() (CleanupPreview, error) {
 }
 
 func (s *Store) cleanupUnavailable(body CleanupRequest) (CleanupResult, error) {
+	return s.removeRecords(ClearRecordsRequest{IDs: body.IDs}, true)
+}
+
+func (s *Store) clearRecords(body ClearRecordsRequest) (CleanupResult, error) {
+	return s.removeRecords(body, false)
+}
+
+func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (CleanupResult, error) {
 	result := CleanupResult{}
-	if len(body.IDs) == 0 || len(body.IDs) > 5000 {
+	if body.All && (unavailableOnly || len(body.IDs) != 0) {
+		return result, userError("清空全部记录时不能同时指定所选记录")
+	}
+	if !body.All && (len(body.IDs) == 0 || len(body.IDs) > 5000) {
 		return result, userError("请选择 1–5000 条待清理记录")
 	}
+	// Prevent an in-flight cover lookup from recreating cache entries after deletion.
+	if !s.coverMu.TryLock() {
+		return result, userError("正在查找封面或截图，请完成后再清除记录")
+	}
+	defer s.coverMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureIdle(); err != nil {
 		return result, err
 	}
-	if err := s.checkCleanupRoot(); err != nil {
-		return result, err
+	if unavailableOnly {
+		if err := s.checkCleanupRoot(); err != nil {
+			return result, err
+		}
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return result, err
 	}
 	defer tx.Rollback()
+	if body.All {
+		if err = tx.QueryRow("SELECT COUNT(*) FROM videos").Scan(&result.Removed); err != nil {
+			return CleanupResult{}, err
+		}
+		for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections"} {
+			if _, err = tx.Exec("DELETE FROM " + table); err != nil {
+				return CleanupResult{}, err
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return CleanupResult{}, err
+		}
+		return result, nil
+	}
 	seen, shows := map[string]bool{}, map[string]bool{}
 	for _, id := range body.IDs {
 		if seen[id] {
@@ -109,7 +145,7 @@ func (s *Store) cleanupUnavailable(body CleanupRequest) (CleanupResult, error) {
 			return CleanupResult{}, err
 		}
 		// Recheck the file at confirmation time; only remove the requested records.
-		if s.videoAvailable(path) {
+		if unavailableOnly && s.videoAvailable(path) {
 			result.Skipped++
 			continue
 		}

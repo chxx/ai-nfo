@@ -266,6 +266,12 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.cleanupUnavailable(body)
+		case "/api/records/clear":
+			var body ClearRecordsRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.clearRecords(body)
 		case "/api/covers/search":
 			var body CoverRequest
 			if err := decodeBody(raw, &body); err != nil {

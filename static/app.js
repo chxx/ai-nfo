@@ -7,6 +7,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': 
 const activeJob = () => state.jobs.find(j => ['queued', 'running', 'cancelling'].includes(j.status));
 let toastTimer;
 let cleanupIDs = [];
+let clearRecordsRequest = null;
 function toast(message, error = false) {
   const dialog = document.querySelector('dialog[open]');
   if (dialog && error) {
@@ -50,6 +51,8 @@ function renderSelection() {
   $('generate').disabled = !state.selected.size || !!activeJob();
   $('write').disabled = !state.selected.size || !!activeJob();
   $('open-cleanup').disabled = !!activeJob() || state.root_available === false;
+  $('clear-selected').disabled = !state.selected.size || !!activeJob();
+  $('clear-all-records').disabled = !state.videos.length || !!activeJob();
 }
 function renderVideos() {
   const videos = filtered();
@@ -221,6 +224,33 @@ $('cleanup-form').onsubmit = run(async event => {
     cleanupIDs = []; $('cleanup-dialog').close(); await refresh();
     toast('已清理 ' + result.removed + ' 条记录。' + (result.skipped ? result.skipped + ' 条已恢复访问或已移除，本次跳过。' : ''));
   } finally { $('cleanup-submit').disabled = false; }
+});
+function openClearRecords(all) {
+  const videos = all ? state.videos : state.videos.filter(v => state.selected.has(v.id));
+  if (!videos.length || activeJob()) return;
+  if (!all && videos.length > 5000) { toast('单次最多清除 5000 条所选记录；如需清空视频库，请使用「清空全部记录」。', true); return; }
+  clearRecordsRequest = all ? {all: true} : {ids: videos.map(v => v.id)};
+  $('clear-records-dialog').querySelector('.dialog-message')?.remove();
+  $('clear-records-title').textContent = all ? '清空全部记录' : '清除所选记录';
+  $('clear-records-summary').textContent = all
+    ? `将清空整个视频库的 ${videos.length} 条记录，不受当前筛选和勾选影响。`
+    : `将清除已勾选的 ${videos.length} 条记录，包含筛选后隐藏的已选项。`;
+  $('clear-records-list').innerHTML = videos.slice(0, 100).map(v => '<li>' + escapeHtml(v.path) + '</li>').join('')
+    + (videos.length > 100 ? `<li>另有 ${videos.length - 100} 条记录未展开</li>` : '');
+  $('clear-records-submit').textContent = all ? '确认清空全部记录' : '确认清除所选记录';
+  $('clear-records-dialog').showModal();
+}
+$('clear-selected').onclick = () => openClearRecords(false);
+$('clear-all-records').onclick = () => openClearRecords(true);
+$('clear-records-form').onsubmit = run(async event => {
+  event.preventDefault();
+  if (!clearRecordsRequest || $('clear-records-submit').disabled) return;
+  $('clear-records-submit').disabled = true;
+  try {
+    const result = await api('/api/records/clear', clearRecordsRequest);
+    clearRecordsRequest = null; $('clear-records-dialog').close(); await refresh();
+    toast(`已清除 ${result.removed} 条记录。` + (result.skipped ? `${result.skipped} 条记录已不存在，本次跳过。` : ''));
+  } finally { $('clear-records-submit').disabled = false; }
 });
 $('generate').onclick = () => { if (!state.settings.base_url || !state.settings.model) { page('settings'); toast('请先配置 AI 接口地址和模型名称'); } else batch('generate'); };
 $('write').onclick = () => batch('save');
