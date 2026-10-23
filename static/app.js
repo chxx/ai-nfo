@@ -117,6 +117,8 @@ async function browse(path = '') {
 }
 async function openScan() {
   $('scan-dialog').querySelector('.dialog-message')?.remove();
+  if (state.kind !== 'all') $('scan-kind').value = state.kind;
+  $('series-help').hidden = $('scan-kind').value !== 'episode';
   $('scan-feedback').textContent = ''; $('scan-dialog').showModal();
   try { await browse(state.folder); } catch (err) { $('folder-list').innerHTML = '<p>目录不可访问，请检查挂载和权限</p>'; throw err; }
 }
@@ -189,10 +191,11 @@ $('scan-kind').onchange = () => $('series-help').hidden = $('scan-kind').value !
 $('scan-form').onsubmit = run(async event => {
   event.preventDefault(); $('scan-submit').disabled = true; $('scan-feedback').textContent = '正在扫描…';
   try {
-    const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind: $('scan-kind').value, recursive: $('recursive').checked});
-    $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = 'all'; $('search').value = ''; $('status-filter').value = 'all';
-    document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === 'all'));
-    await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.warnings.join('；')}`, !!data.warnings.length);
+    const kind = $('scan-kind').value;
+    const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind, recursive: $('recursive').checked});
+    $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = kind; $('search').value = ''; $('status-filter').value = 'all';
+    document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === kind));
+    await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属系列。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);
   } finally { $('scan-submit').disabled = false; $('scan-feedback').textContent = ''; }
 });
 $('generate').onclick = () => { if (!state.settings.base_url || !state.settings.model) { page('settings'); toast('请先配置 AI 接口地址和模型名称'); } else batch('generate'); };

@@ -111,7 +111,7 @@ func TestScanAndPathBoundaries(t *testing.T) {
 		t.Fatalf("wrong numbering: %+v", v)
 	}
 	draft(t, s, v.ID)
-	scan(t, s, "课程", "movie")
+	scan(t, s, "课程", "episode")
 	v, _ = s.getVideo(v.ID)
 	if v.Metadata == nil || v.Kind != "episode" {
 		t.Fatal("rescan discarded edits")
@@ -121,6 +121,78 @@ func TestScanAndPathBoundaries(t *testing.T) {
 		t.Fatalf("directories: %+v %v", listing, err)
 	}
 }
+func TestRescanReclassifiesVideos(t *testing.T) {
+	s := testStore(t)
+	put(t, s, "course/01-intro.mp4", "")
+	id := scan(t, s, "", "movie")[0]
+	draft(t, s, id)
+	job := waitJob(t, s, start(t, s, "save", []string{id}, false))
+	if job.Failed != 0 {
+		t.Fatal(job)
+	}
+	originalNFO, err := os.ReadFile(filepath.Join(s.root, "course/01-intro.nfo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Exercise the same scan and state endpoints used by the series tab.
+	app := newWebApp(s, "")
+	w := request(app, "POST", "/api/scan", `{"path":"course","kind":"episode","recursive":true}`, nil, "")
+	var result ScanResult
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Count != 1 || result.Reclassified != 1 {
+		t.Fatalf("rescan: %d %s", w.Code, w.Body.String())
+	}
+	w = request(app, "GET", "/api/state", "", nil, "")
+	var state struct {
+		Videos []Video `json:"videos"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &state) != nil || len(state.Videos) != 1 {
+		t.Fatal(w.Body.String())
+	}
+	v := state.Videos[0]
+	if v.ID != id || v.Kind != "episode" || v.ShowPath == nil || *v.ShowPath != "course" || v.Show == nil || *v.Season != 1 || *v.Episode != 1 || v.Status != "draft" || v.Metadata.Title != "标题 & <安全>" {
+		t.Fatalf("series tab record: %+v", v)
+	}
+	files, err := s.preview(id)
+	if err != nil || len(files) != 2 || !strings.Contains(files[1].XML, "<episodedetails>") {
+		t.Fatalf("preview: %+v %v", files, err)
+	}
+	afterScan, err := os.ReadFile(filepath.Join(s.root, "course/01-intro.nfo"))
+	if err != nil || string(originalNFO) != string(afterScan) {
+		t.Fatal("scan changed existing NFO")
+	}
+
+	_, err = s.edit(EditRequest{ID: id, Metadata: v.Metadata, Show: &Metadata{Title: "手动系列名"}, Season: intPointer(2), Episode: intPointer(9)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = s.scan(ScanRequest{Path: "course", Kind: "episode", Recursive: true})
+	v, _ = s.getVideo(id)
+	if err != nil || result.Reclassified != 0 || *v.Season != 2 || *v.Episode != 9 || v.Show.Title != "手动系列名" {
+		t.Fatalf("same series rescan lost edits: %+v %v", v, err)
+	}
+
+	result, err = s.scan(ScanRequest{Kind: "episode", Recursive: true})
+	v, _ = s.getVideo(id)
+	if err != nil || result.Reclassified != 1 || *v.ShowPath != "." || *v.Season != 1 || *v.Episode != 1 {
+		t.Fatalf("series reassignment failed: %+v %v", v, err)
+	}
+
+	result, err = s.scan(ScanRequest{Path: "course", Kind: "movie", Recursive: true})
+	v, _ = s.getVideo(id)
+	if err != nil || result.Reclassified != 1 || v.Kind != "movie" || v.ShowPath != nil || v.Season != nil || v.Episode != nil || v.Show != nil || v.Metadata == nil {
+		t.Fatalf("movie conversion failed: %+v %v", v, err)
+	}
+
+	put(t, s, "fresh/01-first.mp4", "")
+	newID := scan(t, s, "fresh", "movie")[0]
+	scan(t, s, "fresh", "episode")
+	v, _ = s.getVideo(newID)
+	if v.Kind != "episode" || v.Status != "new" || v.Metadata != nil {
+		t.Fatalf("new video conversion: %+v", v)
+	}
+}
+
 func TestNFOValidationAndAtomicWrites(t *testing.T) {
 	s := testStore(t)
 	put(t, s, "video.mp4", "")

@@ -101,9 +101,10 @@ type ScanRequest struct {
 	Recursive bool   `json:"recursive"`
 }
 type ScanResult struct {
-	Count    int      `json:"count"`
-	IDs      []string `json:"ids"`
-	Warnings []string `json:"warnings"`
+	Count        int      `json:"count"`
+	Reclassified int      `json:"reclassified"`
+	IDs          []string `json:"ids"`
+	Warnings     []string `json:"warnings"`
 }
 
 func intPointer(v int) *int     { return &v }
@@ -213,12 +214,26 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 		}
 	}
 	for _, v := range found {
+		var changed int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM videos WHERE path=? AND
+ (kind<>? OR show_path IS NOT ?)`, v.Path, v.Kind, v.ShowPath).Scan(&changed); err != nil {
+			return result, err
+		}
 		_, err = tx.Exec(`INSERT INTO videos(id,path,size,kind,show_path,season,episode,updated) VALUES(?,?,?,?,?,?,?,?)
- ON CONFLICT(path) DO UPDATE SET size=excluded.size`, v.ID, v.Path, v.Size, v.Kind, v.ShowPath, v.Season, v.Episode, v.Updated)
+ ON CONFLICT(path) DO UPDATE SET
+ size=excluded.size,
+ kind=excluded.kind,
+ show_path=excluded.show_path,
+ season=CASE WHEN videos.kind<>excluded.kind OR videos.show_path IS NOT excluded.show_path THEN excluded.season ELSE videos.season END,
+ episode=CASE WHEN videos.kind<>excluded.kind OR videos.show_path IS NOT excluded.show_path THEN excluded.episode ELSE videos.episode END,
+ status=CASE WHEN videos.kind<>excluded.kind OR videos.show_path IS NOT excluded.show_path THEN CASE WHEN videos.metadata IS NULL THEN 'new' ELSE 'draft' END ELSE videos.status END,
+ error=CASE WHEN videos.kind<>excluded.kind OR videos.show_path IS NOT excluded.show_path THEN '' ELSE videos.error END,
+ updated=excluded.updated`, v.ID, v.Path, v.Size, v.Kind, v.ShowPath, v.Season, v.Episode, v.Updated)
 		if err != nil {
 			return result, err
 		}
 		result.IDs = append(result.IDs, v.ID)
+		result.Reclassified += changed
 	}
 	if err = tx.Commit(); err != nil {
 		return result, err
