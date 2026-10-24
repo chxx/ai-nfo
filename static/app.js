@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, directoryCover: null, expandedSeries: new Set(), directoryPath: '.', navigationOpen: false, includeDescendants: false, listPage: 1, pageSize: 25, visibleIDs: new Set(), batch: '', loading: false};
+const state = {videos: [], jobs: [], settings: {}, selected: new Set(), coverCandidates: {}, kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, directoryCover: null, expandedSeries: new Set(), directoryPath: '.', navigationOpen: false, includeDescendants: false, listPage: 1, pageSize: 25, visibleIDs: new Set(), batch: '', loading: false};
 const statusNames = {new: '等待整理', draft: '待确认', saved: '已保存', error: '处理失败', generating: '生成中'};
 const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在取消', cancelled: '已取消', completed: '已完成', partial: '部分失败', interrupted: '已中断'};
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -83,20 +83,28 @@ function inlineCoverPreview(v) {
   const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
   if (!c) return '';
   const label = coverLabel(v, c.scope);
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><div class="cover-preview-actions"><button type="button" class="secondary small" data-cover="${v.id}">搜索新候选</button><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></div></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}"><p class="hint">正在读取已保存的候选封面…</p></section></section></td></tr>`;
+  const cached = state.coverCandidates[v.id + ':' + c.scope];
+  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id) : '<p class="hint">正在读取已保存的候选封面…</p>';
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><div class="cover-preview-actions"><button type="button" class="secondary small" data-cover="${v.id}">搜索新候选</button><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></div></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}">${candidates}</section></section></td></tr>`;
+}
+function inlineCoverCandidatesMarkup(candidates, id) {
+  if (!candidates.length) return '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>';
+  return `<h4>其他候选封面</h4><div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"><span>${escapeHtml(c.title || '未命名候选')}</span><small>${escapeHtml(coverMatchNames[c.match] || '待核对')} · ${c.width} × ${c.height}</small></button>`).join('')}</div><p class="hint">点击候选封面即可替换当前图片，并保留原封面备份。</p>`;
 }
 function renderInlineCoverCandidates(id, candidates) {
   const container = $('cover-candidates-' + id);
   if (!container) return;
-  if (!candidates.length) { container.innerHTML = '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>'; return; }
-  container.innerHTML = `<h4>其他候选封面</h4><div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"><span>${escapeHtml(c.title || '未命名候选')}</span><small>${escapeHtml(coverMatchNames[c.match] || '待核对')} · ${c.width} × ${c.height}</small></button>`).join('')}</div><p class="hint">点击候选封面即可替换当前图片，并保留原封面备份。</p>`;
+  container.innerHTML = inlineCoverCandidatesMarkup(candidates, id);
 }
 async function loadInlineCoverCandidates(id, scope) {
   const container = $('cover-candidates-' + id);
   if (!container) return;
+  const key = id + ':' + scope;
+  if (Array.isArray(state.coverCandidates[key])) { renderInlineCoverCandidates(id, state.coverCandidates[key]); return; }
   try {
     const data = await api('/api/covers?id=' + encodeURIComponent(id) + '&scope=' + encodeURIComponent(scope));
-    renderInlineCoverCandidates(id, data.candidates || []);
+    state.coverCandidates[key] = data.candidates || [];
+    renderInlineCoverCandidates(id, state.coverCandidates[key]);
   } catch (err) { container.innerHTML = `<p class="error">候选封面读取失败：${escapeHtml(err.message)}</p>`; }
 }
 async function saveInlineCover(button) {
@@ -105,6 +113,7 @@ async function saveInlineCover(button) {
   try {
     const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope: 'video', candidate_id: button.dataset.coverCandidate, overwrite: true});
     toast(result.saved ? '封面已替换，原封面已保留备份' : '封面未发生变化');
+    delete state.coverCandidates[button.dataset.coverVideo + ':video'];
     await refresh();
     if (state.coverPreview?.id === button.dataset.coverVideo) await loadInlineCoverCandidates(button.dataset.coverVideo, state.coverPreview.scope);
   } finally { buttons.forEach(item => { item.disabled = false; }); }
