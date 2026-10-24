@@ -58,6 +58,7 @@ function renderSelection() {
   const hidden = [...state.selected].filter(id => !state.visibleIDs.has(id)).length;
   $('selected-count').textContent = state.selected.size ? `已选 ${state.selected.size} 项${hidden ? ` · ${hidden} 项不在当前页` : ''}` : '勾选视频或目录以批量处理';
   $('clear-selection').hidden = !state.selected.size;
+  $('selection-toolbar').classList.toggle('has-selection', state.selected.size > 0);
   $('select-all').setAttribute('aria-label', `选择当前筛选结果中的全部 ${videos.length} 个视频（跨页）`);
   $('generate').disabled = !state.selected.size || !!activeTextJob();
   $('auto-covers').disabled = !state.selected.size;

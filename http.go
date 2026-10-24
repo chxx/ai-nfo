@@ -91,6 +91,9 @@ func (a *webApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "/style.css":
 			name = "style.css"
 			mime = "text/css"
+		case "/library.css":
+			name = "library.css"
+			mime = "text/css"
 		}
 		if name != "" {
 			raw, err := assets.ReadFile("static/" + name)
