@@ -301,6 +301,10 @@ $('library-browser').onclick = event => {
   const cover = event.target.closest('[data-directory-cover]');
   if (cover) { state.directoryCover = state.directoryCover === cover.dataset.directoryCover ? null : cover.dataset.directoryCover; renderVideos(); }
 };
+$('directory-preview').onclick = run(async event => {
+  const candidate = event.target.closest('[data-cover-candidate]');
+  if (candidate) await saveInlineCover(candidate);
+});
 $('library-browser').onchange = event => {
   if (event.target.id === 'include-descendants') { state.includeDescendants = event.target.checked; state.listPage = 1; renderVideos(); return; }
   const path = event.target.dataset.seriesSelect;
