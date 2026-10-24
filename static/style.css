@@ -118,3 +118,4 @@
   #video-table .list-cover-preview header{align-items:flex-start}
   #video-table .list-cover-preview header button{font-size:10px;padding:7px}
 }
+.cover-preview-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.cover-preview-actions button{white-space:nowrap}
