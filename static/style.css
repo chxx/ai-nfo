@@ -119,3 +119,4 @@
   #video-table .list-cover-preview header button{font-size:10px;padding:7px}
 }
 .cover-preview-row>td{padding:8px 12px}.inline-cover-candidates{border-bottom:1px solid var(--line);padding:6px 10px;background:#fbfcfc}.inline-cover-choice-grid{display:flex;justify-content:center;gap:6px;overflow-x:auto;padding-bottom:1px}.inline-cover-choice{display:flex;align-items:center;justify-content:center;flex:0 0 104px;padding:3px;border:1px solid var(--line);border-radius:6px;background:#fff}.inline-cover-choice:hover,.inline-cover-choice:focus-visible{border-color:var(--teal);background:var(--teal-light)}.inline-cover-choice img{display:block;width:96px;height:58px;object-fit:contain;background:var(--bg);border-radius:4px}
+.list-cover-thumb{gap:0}

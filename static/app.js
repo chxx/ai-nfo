@@ -75,7 +75,7 @@ function listCoverThumbnails(v) {
   return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
     const label = coverLabel(v, c.scope);
-    return `<button type="button" class="list-cover-thumb" data-cover-preview="${v.id}" data-cover-scope="${c.scope}" aria-expanded="${open}" aria-controls="cover-preview-${v.id}" aria-label="${open ? '收起' : '查看'}${label}：${escapeHtml(v.filename)}"><img data-list-cover src="${escapeHtml(c.thumbnail_url)}" alt="${label}" loading="lazy" decoding="async" width="88" height="58"><span class="cover-load-error" hidden>图片不可用</span><span>${label}</span></button>`;
+    return `<button type="button" class="list-cover-thumb" data-cover-preview="${v.id}" data-cover-scope="${c.scope}" aria-expanded="${open}" aria-controls="cover-preview-${v.id}" aria-label="${open ? '收起' : '查看'}${label}：${escapeHtml(v.filename)}"><img data-list-cover src="${escapeHtml(c.thumbnail_url)}" alt="${label}" loading="lazy" decoding="async" width="88" height="58"><span class="cover-load-error" hidden>图片不可用</span></button>`;
   }).join('') + '</div>';
 }
 function inlineCoverPreview(v) {
