@@ -84,38 +84,40 @@ function inlineCoverPreview(v) {
   if (!c) return '';
   const label = coverLabel(v, c.scope);
   const cached = state.coverCandidates[v.id + ':' + c.scope];
-  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id) : '<p class="hint">正在读取已保存的候选封面…</p>';
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
+  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, c.scope) : '';
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}-${c.scope}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
 }
-function inlineCoverCandidatesMarkup(candidates, id) {
-  if (!candidates.length) return '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>';
-  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
+function inlineCoverCandidatesMarkup(candidates, id, scope) {
+  if (!candidates.length) return '';
+  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" data-cover-scope="${scope}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
 }
-function renderInlineCoverCandidates(id, candidates) {
-  const container = $('cover-candidates-' + id);
+function renderInlineCoverCandidates(id, scope, candidates) {
+  const container = $('cover-candidates-' + id + '-' + scope);
   if (!container) return;
-  container.innerHTML = inlineCoverCandidatesMarkup(candidates, id);
+  container.innerHTML = inlineCoverCandidatesMarkup(candidates, id, scope);
 }
 async function loadInlineCoverCandidates(id, scope) {
-  const container = $('cover-candidates-' + id);
+  const container = $('cover-candidates-' + id + '-' + scope);
   if (!container) return;
   const key = id + ':' + scope;
-  if (Array.isArray(state.coverCandidates[key])) { renderInlineCoverCandidates(id, state.coverCandidates[key]); return; }
+  if (Array.isArray(state.coverCandidates[key])) { renderInlineCoverCandidates(id, scope, state.coverCandidates[key]); return; }
   try {
     const data = await api('/api/covers?id=' + encodeURIComponent(id) + '&scope=' + encodeURIComponent(scope));
     state.coverCandidates[key] = data.candidates || [];
-    renderInlineCoverCandidates(id, state.coverCandidates[key]);
-  } catch (err) { container.innerHTML = `<p class="error">候选封面读取失败：${escapeHtml(err.message)}</p>`; }
+    renderInlineCoverCandidates(id, scope, state.coverCandidates[key]);
+  } catch { container.replaceChildren(); }
 }
 async function saveInlineCover(button) {
-  const buttons = $('cover-candidates-' + button.dataset.coverVideo)?.querySelectorAll('[data-cover-candidate]') || [];
+  const scope = button.dataset.coverScope || 'video';
+  const buttons = $('cover-candidates-' + button.dataset.coverVideo + '-' + scope)?.querySelectorAll('[data-cover-candidate]') || [];
   buttons.forEach(item => { item.disabled = true; });
   try {
-    const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope: 'video', candidate_id: button.dataset.coverCandidate, overwrite: true});
+    const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope, candidate_id: button.dataset.coverCandidate, overwrite: true});
     toast(result.saved ? '封面已替换，原封面已保留备份' : '封面未发生变化');
-    delete state.coverCandidates[button.dataset.coverVideo + ':video'];
+    delete state.coverCandidates[button.dataset.coverVideo + ':' + scope];
     await refresh();
     if (state.coverPreview?.id === button.dataset.coverVideo) await loadInlineCoverCandidates(button.dataset.coverVideo, state.coverPreview.scope);
+    if (scope === 'series' && state.directoryCover) await loadInlineCoverCandidates(button.dataset.coverVideo, scope);
   } finally { buttons.forEach(item => { item.disabled = false; }); }
 }
 function videoRow(v) {

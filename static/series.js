@@ -61,10 +61,8 @@ function navigateDirectory(path) {
   $('directory-title')?.focus({preventScroll:true});
 }
 
-function directoryPoster(node) {
-  const owner = node.members.find(v => v.show_path === node.path && v.covers?.some(c => c.scope === 'series'));
-  return owner?.covers.find(c => c.scope === 'series');
-}
+function directoryPosterVideo(node) { return node.members.find(v => v.show_path === node.path && v.covers?.some(c => c.scope === 'series')); }
+function directoryPoster(node) { return directoryPosterVideo(node)?.covers.find(c => c.scope === 'series'); }
 
 function renderDirectoryBrowser() {
   const enabled = state.kind === 'episode';
@@ -89,7 +87,7 @@ function renderDirectoryBrowser() {
   const parts = state.directoryPath === '.' ? [] : state.directoryPath.split('/');
   const crumbs = [{path:'.', name:'全部系列'}, ...parts.map((name, i) => ({name, path:parts.slice(0,i+1).join('/')}))];
   const search = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value, filtering = !!search || filter !== 'all';
-  const poster = directoryPoster(current), parentPath = parts.length > 1 ? parts.slice(0,-1).join('/') : '.';
+  const posterVideo = directoryPosterVideo(current), poster = posterVideo?.covers.find(c => c.scope === 'series'), parentPath = parts.length > 1 ? parts.slice(0,-1).join('/') : '.';
   $('directory-header').innerHTML = `<nav class="directory-breadcrumbs" aria-label="当前位置">${crumbs.map((c,i) => `${i ? '<span aria-hidden="true">/</span>' : ''}${i === crumbs.length-1 ? `<span aria-current="location">${escapeHtml(c.name)}</span>` : `<button type="button" data-directory="${escapeHtml(c.path)}">${escapeHtml(c.name)}</button>`}`).join('')}</nav><div class="directory-detail">${poster ? `<button type="button" class="directory-poster" data-directory-cover="${escapeHtml(current.path)}" aria-label="查看当前目录封面"><img data-list-cover src="${escapeHtml(poster.thumbnail_url)}" alt="系列封面"><span class="cover-load-error" hidden>图片不可用</span></button>` : '<span class="directory-symbol" aria-hidden="true">▱</span>'}<div class="directory-description"><h2 id="directory-title" tabindex="-1">${escapeHtml(current.path === '.' ? '全部系列' : current.name)}</h2><p>${current.children.size} 个子目录 · 本层 ${current.direct.length} 集 · 共 ${current.members.length} 集</p></div>${current.path !== '.' ? `<button type="button" class="secondary small" data-directory="${escapeHtml(parentPath)}">↑ 上一级</button>` : ''}</div><div class="directory-options"><label class="checkbox-label"><input id="include-descendants" type="checkbox" ${state.includeDescendants || filtering ? 'checked' : ''} ${filtering ? 'disabled' : ''}>${filtering ? '筛选范围：当前目录及子目录' : '同时显示子目录的视频'}</label><button type="button" class="text-button" data-select-directory="${escapeHtml(current.path)}" ${!current.members.length ? 'disabled' : ''}>选择整个目录（${current.members.length} 集）</button></div>`;
   const childNodes = children(current).filter(node => !filtering || node.members.some(v => matchesVideo(v,search,filter)));
   $('directory-cards').hidden = !childNodes.length;
@@ -102,7 +100,10 @@ function renderDirectoryBrowser() {
   }).join('');
   if (poster && state.directoryCover === current.path) {
     $('directory-preview').hidden = false;
-    $('directory-preview').innerHTML = `<section class="list-cover-preview" aria-label="目录封面大图"><header><div><h3>${escapeHtml(current.name)} · 系列封面</h3><p>${escapeHtml(poster.path)}</p></div><button type="button" class="secondary small" data-directory-cover="${escapeHtml(current.path)}">收起大图</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(poster.url)}" alt="${escapeHtml(current.name)}的系列封面大图"><p class="cover-load-error" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section>`;
+    const cached = state.coverCandidates[posterVideo.id + ':series'];
+    const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, posterVideo.id, 'series') : '';
+    $('directory-preview').innerHTML = `<section class="list-cover-preview" aria-label="目录封面大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${posterVideo.id}-series">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(poster.url)}" alt="${escapeHtml(current.name)}的系列封面大图"><p class="cover-load-error" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section>`;
+    loadInlineCoverCandidates(posterVideo.id, 'series');
   }
 }
 
