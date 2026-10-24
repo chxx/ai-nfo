@@ -26,35 +26,84 @@ function episodeOrder(a, b) {
   return (a.season ?? Infinity) - (b.season ?? Infinity) || (a.episode ?? Infinity) - (b.episode ?? Infinity) || a.path.localeCompare(b.path, 'zh-CN', {numeric:true});
 }
 
-function renderSeriesRows(videos) {
-  const root = seriesTree(state.videos), matchingIDs = new Set(videos.map(v => v.id));
-  const children = node => [...node.children.values()].sort((a, b) => a.path.localeCompare(b.path, 'zh-CN', {numeric: true}));
-  let directoryCount = 0;
-  const count = node => { if (!node.members.some(v => matchingIDs.has(v.id))) return; directoryCount++; children(node).forEach(count); };
-  const roots = root.direct.length ? [root] : children(root);
-  roots.forEach(count);
-  $('result-count').textContent = `${directoryCount} 个目录 · ${videos.length} 集`;
-  const render = (node, depth) => {
-    const matching = node.members.filter(v => matchingIDs.has(v.id));
-    if (!matching.length) return '';
-    const {path, name, members} = node, open = state.expandedSeries.has(path);
-    // Only display a directory's own series cover, not a descendant's poster.
-    const owner = members.find(v => v.show_path === path && v.covers?.some(c => c.scope === 'series'));
-    const cover = owner?.covers.find(c => c.scope === 'series');
-    const selected = members.filter(v => state.selected.has(v.id)).length;
-    const counts = Object.entries(statusNames).map(([status, label]) => {
-      const count = members.filter(v => v.status === status).length;
-      return count ? `${label} ${count}` : '';
-    }).filter(Boolean).join(' · ');
-    const image = cover ? `<button type="button" class="list-cover-thumb" data-directory-cover="${escapeHtml(path)}" aria-label="查看目录封面：${escapeHtml(path)}"><img data-list-cover src="${escapeHtml(cover.thumbnail_url)}" alt="${escapeHtml(name)}的系列封面" loading="lazy" decoding="async" width="88" height="58"><span class="cover-load-error" hidden>图片不可用</span></button>` : '<span class="no-cover">暂无系列封面</span>';
-    const summary = `<tr class="series-summary${selected ? ' selected-row' : ''}"><td class="check"><input type="checkbox" data-series-select="${escapeHtml(path)}" aria-label="选择目录及子目录：${escapeHtml(path)}（${members.length} 集）" ${selected === members.length ? 'checked' : ''}></td><td class="list-cover-cell">${image}</td><td><div class="series-info"><strong><span class="directory-depth" aria-hidden="true">${'│　'.repeat(Math.min(depth, 8))}</span><button type="button" class="text-button directory-toggle" data-series-toggle="${escapeHtml(path)}" aria-expanded="${open}" aria-label="${open ? '收起' : '展开'}目录：${escapeHtml(path)}">${open ? '▾' : '▸'} ${escapeHtml(name)}</button></strong><small>${escapeHtml(path)}</small><span>共 ${members.length} 集 · 本层 ${node.direct.length} 集 · ${node.children.size} 个子目录${matching.length !== members.length ? ` · 筛选命中 ${matching.length} 集` : ''}</span></div></td><td><span class="series-status">${escapeHtml(counts)}</span></td><td>${size(members.reduce((sum, v) => sum + v.size, 0))}</td><td><button type="button" class="text-button" data-series-toggle="${escapeHtml(path)}" aria-expanded="${open}">${open ? '收起目录' : '展开目录'}</button><span class="existing-note">勾选包含所有下级视频</span></td></tr>`;
-    let preview = '';
-    if (cover && state.directoryCover === path) {
-      preview = `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" aria-label="目录封面大图"><header><div><h3>${escapeHtml(name)} · 系列封面</h3><p>${escapeHtml(cover.path)}</p></div><button type="button" class="secondary small" data-directory-cover="${escapeHtml(path)}">收起目录封面</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(cover.url)}" alt="${escapeHtml(path)}的系列封面大图"><p class="cover-load-error" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
-    }
-    return summary + preview + (open ? node.direct.filter(v => matchingIDs.has(v.id)).sort(episodeOrder).map(videoRow).join('') + children(node).map(child => render(child, depth + 1)).join('') : '');
+function directoryNode(root, path) {
+  if (!path || path === '.') return root;
+  let node = root;
+  for (const part of path.split('/')) { node = node.children.get(part); if (!node) return null; }
+  return node;
+}
+
+function matchesVideo(v, search, filter) {
+  return (filter === 'all' || (filter === 'existing' ? v.has_nfo : filter === 'unavailable' ? !v.exists : v.status === filter))
+    && (!search || `${v.path} ${v.metadata?.title || ''} ${v.show?.title || ''}`.toLocaleLowerCase().includes(search));
+}
+
+function inDirectory(video, path, descendants) {
+  const parent = video.path.includes('/') ? video.path.slice(0, video.path.lastIndexOf('/')) : '.';
+  return descendants ? path === '.' || video.path.startsWith(path + '/') : parent === path;
+}
+
+function libraryPage(videos, page, pageSize) {
+  const pages = Math.max(1, Math.ceil(videos.length / pageSize));
+  page = Math.max(1, Math.min(page, pages));
+  return {page, pages, start: (page - 1) * pageSize, videos: videos.slice((page - 1) * pageSize, page * pageSize)};
+}
+
+function navigateDirectory(path) {
+  const root = seriesTree(state.videos);
+  if (!directoryNode(root, path)) return;
+  state.directoryPath = path; state.navigationOpen = false; state.listPage = 1; state.coverPreview = null; state.directoryCover = null;
+  let parent = '';
+  for (const part of path === '.' ? [] : path.split('/')) {
+    parent = parent ? parent + '/' + part : part; state.expandedSeries.add(parent);
+  }
+  renderVideos();
+  $('directory-title')?.focus({preventScroll:true});
+}
+
+function directoryPoster(node) {
+  const owner = node.members.find(v => v.show_path === node.path && v.covers?.some(c => c.scope === 'series'));
+  return owner?.covers.find(c => c.scope === 'series');
+}
+
+function renderDirectoryBrowser() {
+  const enabled = state.kind === 'episode';
+  $('library-browser').classList.toggle('has-directory-nav', enabled);
+  $('library-browser').classList.toggle('nav-open', state.navigationOpen);
+  $('toggle-directory-nav').setAttribute('aria-expanded', String(state.navigationOpen));
+  $('toggle-directory-nav').textContent = state.navigationOpen ? '收起目录导航 ▴' : '浏览目录 ▾';
+  ['series-sidebar', 'directory-header', 'directory-cards'].forEach(id => $(id).hidden = !enabled);
+  $('directory-preview').hidden = true;
+  if (!enabled) return;
+  const root = seriesTree(state.videos);
+  let current = directoryNode(root, state.directoryPath);
+  if (!current) { state.directoryPath = '.'; current = root; state.listPage = 1; }
+  const children = node => [...node.children.values()].sort((a, b) => a.path.localeCompare(b.path, 'zh-CN', {numeric:true}));
+  const scroll = $('directory-tree').scrollTop;
+  const treeRow = node => {
+    const expanded = state.expandedSeries.has(node.path), active = node.path === state.directoryPath;
+    return `<li><div class="directory-nav-row${active ? ' active' : ''}">${node.children.size ? `<button type="button" class="tree-disclosure" data-series-toggle="${escapeHtml(node.path)}" aria-expanded="${expanded}" aria-label="${expanded ? '收起' : '展开'}子目录：${escapeHtml(node.path)}">${expanded ? '▾' : '▸'}</button>` : '<span class="tree-spacer"></span>'}<button type="button" class="directory-link" data-directory="${escapeHtml(node.path)}" ${active ? 'aria-current="location"' : ''} title="${escapeHtml(node.path)}"><span>${escapeHtml(node.name)}</span><small>${node.members.length}</small></button></div>${expanded && node.children.size ? `<ul>${children(node).map(treeRow).join('')}</ul>` : ''}</li>`;
   };
-  return roots.map(node => render(node, 0)).join('');
+  $('directory-tree').innerHTML = `<button type="button" class="directory-root${state.directoryPath === '.' ? ' active' : ''}" data-directory="." ${state.directoryPath === '.' ? 'aria-current="location"' : ''}>全部系列 <small>${root.members.length}</small></button><ul>${children(root).map(treeRow).join('')}</ul>`;
+  $('directory-tree').scrollTop = scroll;
+  const parts = state.directoryPath === '.' ? [] : state.directoryPath.split('/');
+  const crumbs = [{path:'.', name:'全部系列'}, ...parts.map((name, i) => ({name, path:parts.slice(0,i+1).join('/')}))];
+  const search = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value, filtering = !!search || filter !== 'all';
+  const poster = directoryPoster(current), parentPath = parts.length > 1 ? parts.slice(0,-1).join('/') : '.';
+  $('directory-header').innerHTML = `<nav class="directory-breadcrumbs" aria-label="当前位置">${crumbs.map((c,i) => `${i ? '<span aria-hidden="true">/</span>' : ''}${i === crumbs.length-1 ? `<span aria-current="location">${escapeHtml(c.name)}</span>` : `<button type="button" data-directory="${escapeHtml(c.path)}">${escapeHtml(c.name)}</button>`}`).join('')}</nav><div class="directory-detail">${poster ? `<button type="button" class="directory-poster" data-directory-cover="${escapeHtml(current.path)}" aria-label="查看当前目录封面"><img data-list-cover src="${escapeHtml(poster.thumbnail_url)}" alt="系列封面"><span class="cover-load-error" hidden>图片不可用</span></button>` : '<span class="directory-symbol" aria-hidden="true">▱</span>'}<div class="directory-description"><h2 id="directory-title" tabindex="-1">${escapeHtml(current.path === '.' ? '全部系列' : current.name)}</h2><p>${current.children.size} 个子目录 · 本层 ${current.direct.length} 集 · 共 ${current.members.length} 集</p></div>${current.path !== '.' ? `<button type="button" class="secondary small" data-directory="${escapeHtml(parentPath)}">↑ 上一级</button>` : ''}</div><div class="directory-options"><label class="checkbox-label"><input id="include-descendants" type="checkbox" ${state.includeDescendants || filtering ? 'checked' : ''} ${filtering ? 'disabled' : ''}>${filtering ? '筛选范围：当前目录及子目录' : '同时显示子目录的视频'}</label><button type="button" class="text-button" data-select-directory="${escapeHtml(current.path)}" ${!current.members.length ? 'disabled' : ''}>选择整个目录（${current.members.length} 集）</button></div>`;
+  const childNodes = children(current).filter(node => !filtering || node.members.some(v => matchesVideo(v,search,filter)));
+  $('directory-cards').hidden = !childNodes.length;
+  $('directory-cards').innerHTML = childNodes.map(node => {
+    const selected = node.members.filter(v => state.selected.has(v.id)).length;
+    const saved = node.members.filter(v => v.status === 'saved').length;
+    const failed = node.members.filter(v => v.status === 'error').length;
+    const drafts = node.members.filter(v => v.status === 'draft').length;
+    return `<article class="directory-card${selected ? ' selected' : ''}"><input type="checkbox" data-series-select="${escapeHtml(node.path)}" aria-label="选择目录及子目录：${escapeHtml(node.path)}（${node.members.length} 集）" ${selected === node.members.length ? 'checked' : ''}><button type="button" class="directory-card-open" data-directory="${escapeHtml(node.path)}" aria-label="打开目录：${escapeHtml(node.path)}"><span class="folder-symbol" aria-hidden="true">▱</span><strong>${escapeHtml(node.name)}</strong><span>${node.members.length} 集 · ${node.children.size} 个子目录</span><small>${failed ? `${failed} 集失败` : saved ? `${saved} / ${node.members.length} 集已保存` : drafts ? `${drafts} 集待确认` : '等待整理'} <span aria-hidden="true">→</span></small></button></article>`;
+  }).join('');
+  if (poster && state.directoryCover === current.path) {
+    $('directory-preview').hidden = false;
+    $('directory-preview').innerHTML = `<section class="list-cover-preview" aria-label="目录封面大图"><header><div><h3>${escapeHtml(current.name)} · 系列封面</h3><p>${escapeHtml(poster.path)}</p></div><button type="button" class="secondary small" data-directory-cover="${escapeHtml(current.path)}">收起大图</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(poster.url)}" alt="${escapeHtml(current.name)}的系列封面大图"><p class="cover-load-error" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section>`;
+  }
 }
 
 function updateSeriesSelection() {
@@ -62,6 +111,6 @@ function updateSeriesSelection() {
     const members = seriesMembers(input.dataset.seriesSelect), count = members.filter(v => state.selected.has(v.id)).length;
     input.checked = members.length > 0 && count === members.length;
     input.indeterminate = count > 0 && count < members.length;
-    input.closest('tr').classList.toggle('selected-row', count > 0);
+    input.closest('.directory-card')?.classList.toggle('selected', count > 0);
   });
 }

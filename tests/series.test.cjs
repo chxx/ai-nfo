@@ -30,3 +30,29 @@ test('directory selection includes descendants without matching sibling path pre
  assert.deepEqual(Array.from(context.seriesMembers('课程/基础/进阶'),v=>v.id),['b']);
  assert.equal(context.seriesMembers('.').length,4);
 });
+test('directory browsing separates this level from descendants and resolves full paths',()=>{
+ const root = context.seriesTree(videos);
+ assert.equal(context.directoryNode(root,'课程/基础/进阶').direct[0].id,'b');
+ assert.equal(context.directoryNode(root,'missing'),null);
+ assert.equal(context.inDirectory(videos[0],'课程/基础',false),true);
+ assert.equal(context.inDirectory(videos[1],'课程/基础',false),false);
+ assert.equal(context.inDirectory(videos[1],'课程/基础',true),true);
+ assert.equal(context.inDirectory(videos[2],'课程',true),false);
+ assert.equal(context.inDirectory(videos[4],'.',false),true);
+ assert.equal(context.inDirectory(videos[0],'.',false),false);
+});
+test('paging clamps after filtering or deletion without dropping or repeating videos',()=>{
+ const rows=Array.from({length:53},(_,id)=>({id}));
+ const one=context.libraryPage(rows,1,25), two=context.libraryPage(rows,2,25), last=context.libraryPage(rows,99,25);
+ assert.deepEqual([...one.videos,...two.videos,...last.videos].map(v=>v.id),rows.map(v=>v.id));
+ assert.equal(last.page,3); assert.equal(last.start,50);
+ const empty=context.libraryPage([],3,25); assert.equal(empty.page,1); assert.equal(empty.videos.length,0);
+ assert.equal(context.libraryPage(rows.slice(0,8),3,25).page,1);
+});
+test('search combines path and metadata with status rather than losing the directory scope',()=>{
+ const video={...videos[1], status:'error',metadata:{title:'Alphabet'},exists:false};
+ assert.equal(context.matchesVideo(video,'alphabet','error'),true);
+ assert.equal(context.matchesVideo(video,'进阶','unavailable'),true);
+ assert.equal(context.matchesVideo(video,'alphabet','saved'),false);
+ assert.equal(context.matchesVideo(video,'unrelated','all'),false);
+});

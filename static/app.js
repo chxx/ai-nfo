@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, directoryCover: null, expandedSeries: new Set(), batch: '', loading: false};
+const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, directoryCover: null, expandedSeries: new Set(), directoryPath: '.', navigationOpen: false, includeDescendants: false, listPage: 1, pageSize: 25, visibleIDs: new Set(), batch: '', loading: false};
 const statusNames = {new: '等待整理', draft: '待确认', saved: '已保存', error: '处理失败', generating: '生成中'};
 const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在取消', cancelled: '已取消', completed: '已完成', partial: '部分失败', interrupted: '已中断'};
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -42,16 +42,23 @@ function size(bytes) {
 }
 function filtered() {
   const search = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value;
-  return state.videos.filter(v => (state.kind === 'all' || v.kind === state.kind)
-    && (filter === 'all' || (filter === 'existing' ? v.has_nfo : filter === 'unavailable' ? !v.exists : v.status === filter))
-    && (!search || `${v.path} ${v.metadata?.title || ''} ${v.show?.title || ''}`.toLocaleLowerCase().includes(search)));
+  const descendants = state.includeDescendants || !!search || filter !== 'all';
+  const videos = state.videos.filter(v => (state.kind === 'all' || v.kind === state.kind)
+    && (state.kind !== 'episode' || inDirectory(v, state.directoryPath, descendants))
+    && matchesVideo(v, search, filter));
+  return state.kind === 'episode' ? videos.sort(episodeOrder) : videos;
 }
 function renderSelection() {
   const videos = filtered(), selected = videos.filter(v => state.selected.has(v.id));
   $('select-all').checked = !!videos.length && selected.length === videos.length;
   $('select-all').indeterminate = selected.length > 0 && selected.length < videos.length;
   $('select-all').disabled = !videos.length;
-  $('selected-count').textContent = state.selected.size ? `已选 ${state.selected.size} 项` : '未选择';
+  $('select-results').disabled = !videos.length;
+  $('select-results').title = `选择全部 ${videos.length} 条筛选结果，包含其他页`;
+  const hidden = [...state.selected].filter(id => !state.visibleIDs.has(id)).length;
+  $('selected-count').textContent = state.selected.size ? `已选 ${state.selected.size} 项${hidden ? ` · ${hidden} 项不在当前页` : ''}` : '勾选视频或目录以批量处理';
+  $('clear-selection').hidden = !state.selected.size;
+  $('select-all').setAttribute('aria-label', `选择当前筛选结果中的全部 ${videos.length} 个视频（跨页）`);
   $('generate').disabled = !state.selected.size || !!activeTextJob();
   $('auto-covers').disabled = !state.selected.size;
   $('write').disabled = !state.selected.size || !!activeTextJob();
@@ -77,31 +84,43 @@ function inlineCoverPreview(v) {
   return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
 }
 function videoRow(v) {
-  const sequence = v.kind === 'episode' ? `${v.show?.title || '系列'} · S${v.season ?? '?'} E${v.episode ?? '?'}` : v.path;
+  const sequence = v.kind === 'episode' ? `S${v.season ?? '?'} E${v.episode ?? '?'} · ${v.path.includes('/') ? v.path.slice(0, v.path.lastIndexOf('/')) : '根目录'}` : v.path;
   return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
 }
 function renderVideos() {
-  const videos = filtered();
-  $('series-controls').hidden = state.kind !== 'episode';
-  if (state.coverPreview && !videos.some(v => v.id === state.coverPreview.id && v.covers?.some(c => c.scope === state.coverPreview.scope))) state.coverPreview = null;
-  const seriesFocus = document.activeElement?.closest('[data-series-toggle]');
-  const seriesFocusPath = seriesFocus?.dataset.seriesToggle, seriesFocusLabel = seriesFocus?.hasAttribute('aria-label');
-  const directoryFocus = document.activeElement?.closest('[data-directory-cover]')?.dataset.directoryCover;
-  const focused = document.activeElement?.closest('[data-cover-preview], [data-close-preview]');
-  const focusID = focused?.dataset.coverPreview || focused?.dataset.closePreview, focusScope = focused?.dataset.coverScope, focusClose = !!focused?.dataset.closePreview;
-  $('result-count').textContent = `${videos.length} 个视频`;
+  const active = document.activeElement;
+  const focusAttributes = ['data-directory', 'data-series-toggle', 'data-directory-cover', 'data-cover-preview', 'data-close-preview', 'data-series-select', 'data-select-directory', 'data-select'];
+  const focusAttribute = focusAttributes.find(attr => active?.hasAttribute(attr));
+  const focusValue = focusAttribute ? active.getAttribute(focusAttribute) : null;
+  const focusScope = active?.dataset.coverScope;
+  const descendantFocus = active?.id === 'include-descendants';
+  renderDirectoryBrowser();
+  const videos = filtered(), paged = libraryPage(videos, state.listPage, state.pageSize);
+  state.listPage = paged.page;
+  state.visibleIDs = new Set(paged.videos.map(v => v.id));
+  if (state.coverPreview && !paged.videos.some(v => v.id === state.coverPreview.id && v.covers?.some(c => c.scope === state.coverPreview.scope))) state.coverPreview = null;
+  const filtering = !!$('search').value.trim() || $('status-filter').value !== 'all';
+  $('result-count').textContent = state.kind === 'episode' ? `${filtering ? '匹配' : state.includeDescendants ? '含子目录' : '本层'} ${videos.length} 集` : `${videos.length} 个视频`;
+  $('reset-filters').hidden = !filtering;
+  $('search').placeholder = state.kind === 'episode' ? '搜索当前目录及子目录' : '搜索标题、文件名或目录';
+  $('video-table').hidden = !videos.length;
   $('empty').hidden = !!videos.length;
+  $('empty').classList.toggle('compact-empty', !!state.videos.length);
   if (!videos.length) {
-    $('empty').querySelector('h2').textContent = state.videos.length ? '没有符合条件的视频' : '从一个视频目录开始';
-    $('empty').querySelector('p').innerHTML = state.videos.length ? '试着更换分类、状态或搜索关键词。' : '选择已挂载的 NAS 文件夹。视频保留在原处，<br>生成的资料会先保存为可编辑草稿。';
-    $('empty-scan').hidden = !!state.videos.length;
+    const directory = state.kind === 'episode' && state.videos.some(v => v.kind === 'episode');
+    $('empty').querySelector('h2').textContent = !state.videos.length ? '从一个视频目录开始' : filtering ? '没有匹配的视频' : directory ? '当前层级没有视频' : '还没有这一类型的视频';
+    $('empty').querySelector('p').textContent = !state.videos.length ? '选择已挂载的 NAS 文件夹，开始整理视频资料。' : filtering ? '试着更换关键词或清除筛选。' : directory ? '打开上方子目录，或勾选「同时显示子目录的视频」。' : '添加视频目录时选择对应类型，已有视频也可以重新扫描分类。';
+    $('empty-scan').hidden = directory || filtering;
     $('empty').querySelector('.steps').hidden = !!state.videos.length;
   }
-  $('video-list').innerHTML = state.kind === 'episode' ? renderSeriesRows(videos) : videos.map(videoRow).join('');
+  $('video-list').innerHTML = paged.videos.map(videoRow).join('');
+  $('list-pagination').hidden = !videos.length;
+  $('page-summary').textContent = `第 ${paged.start + 1}–${paged.start + paged.videos.length} 项，共 ${videos.length} 项`;
+  $('page-position').textContent = `${paged.page} / ${paged.pages}`;
+  $('page-prev').disabled = paged.page === 1; $('page-next').disabled = paged.page === paged.pages;
   renderSelection();
-  if (seriesFocusPath != null) [...$('video-list').querySelectorAll('[data-series-toggle]')].find(b => b.dataset.seriesToggle === seriesFocusPath && b.hasAttribute('aria-label') === seriesFocusLabel)?.focus({preventScroll:true});
-  if (directoryFocus != null) [...$('video-list').querySelectorAll('[data-directory-cover]')].find(b => b.dataset.directoryCover === directoryFocus)?.focus({preventScroll:true});
-  if (focusID) { const selector = focusClose ? '[data-close-preview]' : '[data-cover-preview]'; [...$('video-list').querySelectorAll(selector)].find(b => (b.dataset.coverPreview || b.dataset.closePreview) === focusID && b.dataset.coverScope === focusScope)?.focus({preventScroll: true}); }
+  if (focusAttribute) [...document.querySelectorAll('[' + focusAttribute + ']')].find(el => el.getAttribute(focusAttribute) === focusValue && (!focusScope || el.dataset.coverScope === focusScope))?.focus({preventScroll:true});
+  if (descendantFocus) $('include-descendants')?.focus({preventScroll:true});
 }
 function renderJobs() {
   const job = activeJob();
@@ -223,27 +242,40 @@ $('setup-model').onclick = () => page('settings'); $('provider').onchange = prov
 ['open-scan', 'empty-scan'].forEach(id => $(id).onclick = run(openScan));
 document.querySelectorAll('[data-close]').forEach(button => button.onclick = () => $(button.dataset.close).close());
 document.querySelectorAll('[data-kind]').forEach(button => button.onclick = () => {
-  state.kind = button.dataset.kind; document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b === button)); renderVideos();
+  state.kind = button.dataset.kind; state.listPage = 1; state.coverPreview = null; document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b === button)); renderVideos();
 });
-$('search').oninput = renderVideos; $('status-filter').onchange = renderVideos;
-$('expand-series').onclick = () => {
-  const expand = node => { state.expandedSeries.add(node.path); node.children.forEach(expand); };
-  expand(seriesTree(filtered())); renderVideos();
-};
+const filterChanged = () => { state.listPage = 1; renderVideos(); };
+$('search').oninput = filterChanged; $('status-filter').onchange = filterChanged;
+$('reset-filters').onclick = () => { $('search').value = ''; $('status-filter').value = 'all'; filterChanged(); };
+$('select-results').onclick = () => { filtered().forEach(v => state.selected.add(v.id)); renderVideos(); };
+$('clear-selection').onclick = () => { state.selected.clear(); renderVideos(); };
+$('toggle-directory-nav').onclick = () => { state.navigationOpen = !state.navigationOpen; renderVideos(); };
 $('collapse-series').onclick = () => { state.expandedSeries.clear(); renderVideos(); };
+$('page-size').onchange = () => { state.pageSize = Number($('page-size').value); state.listPage = 1; renderVideos(); };
+$('page-prev').onclick = () => { state.listPage--; renderVideos(); $('video-table').scrollIntoView({block:'start'}); };
+$('page-next').onclick = () => { state.listPage++; renderVideos(); $('video-table').scrollIntoView({block:'start'}); };
+$('library-browser').onclick = event => {
+  const directory = event.target.closest('[data-directory]');
+  if (directory) { navigateDirectory(directory.dataset.directory); return; }
+  const select = event.target.closest('[data-select-directory]');
+  if (select) { seriesMembers(select.dataset.selectDirectory).forEach(v => state.selected.add(v.id)); renderVideos(); return; }
+  const toggle = event.target.closest('[data-series-toggle]');
+  if (toggle) { const path = toggle.dataset.seriesToggle; state.expandedSeries.has(path) ? state.expandedSeries.delete(path) : state.expandedSeries.add(path); renderVideos(); return; }
+  const cover = event.target.closest('[data-directory-cover]');
+  if (cover) { state.directoryCover = state.directoryCover === cover.dataset.directoryCover ? null : cover.dataset.directoryCover; renderVideos(); }
+};
+$('library-browser').onchange = event => {
+  if (event.target.id === 'include-descendants') { state.includeDescendants = event.target.checked; state.listPage = 1; renderVideos(); return; }
+  const path = event.target.dataset.seriesSelect;
+  if (path != null) { seriesMembers(path).forEach(v => event.target.checked ? state.selected.add(v.id) : state.selected.delete(v.id)); renderVideos(); }
+};
 $('select-all').onchange = event => { filtered().forEach(v => event.target.checked ? state.selected.add(v.id) : state.selected.delete(v.id)); renderVideos(); };
 $('video-list').onchange = event => {
-  const path = event.target.dataset.seriesSelect;
-  if (path != null) { seriesMembers(path).forEach(v => event.target.checked ? state.selected.add(v.id) : state.selected.delete(v.id)); renderVideos(); return; }
   const id = event.target.dataset.select; if (!id) return;
   event.target.checked ? state.selected.add(id) : state.selected.delete(id);
   event.target.closest('tr').classList.toggle('selected-row', event.target.checked); renderSelection();
 };
 $('video-list').onclick = event => {
-  const directoryCover = event.target.closest('[data-directory-cover]');
-  if (directoryCover) { const path = directoryCover.dataset.directoryCover; state.directoryCover = state.directoryCover === path ? null : path; renderVideos(); return; }
-  const series = event.target.closest('[data-series-toggle]');
-  if (series) { const path = series.dataset.seriesToggle; state.expandedSeries.has(path) ? state.expandedSeries.delete(path) : state.expandedSeries.add(path); renderVideos(); return; }
   const preview = event.target.closest('[data-cover-preview]'), close = event.target.closest('[data-close-preview]');
   if (preview || close) {
     const button = preview || close, id = button.dataset.coverPreview || button.dataset.closePreview, scope = button.dataset.coverScope;
@@ -256,7 +288,7 @@ $('video-list').onclick = event => {
   }
   const edit = event.target.closest('[data-edit]'); if (edit) editor(edit.dataset.edit);
 };
-$('video-list').addEventListener('error', event => {
+$('library-browser').addEventListener('error', event => {
   const img = event.target;
   if (!img.matches?.('img[data-list-cover]')) return;
   img.hidden = true;
@@ -272,7 +304,7 @@ $('scan-form').onsubmit = run(async event => {
   try {
     const kind = $('scan-kind').value;
     const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind, group_by_directory: kind === 'episode' && $('series-grouping').value === 'directory', recursive: $('recursive').checked});
-    $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = kind; $('search').value = ''; $('status-filter').value = 'all';
+    $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = kind; state.directoryPath = '.'; state.listPage = 1; $('search').value = ''; $('status-filter').value = 'all';
     document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === kind));
     await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属系列。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);
   } finally { $('scan-submit').disabled = false; $('scan-feedback').textContent = ''; }
