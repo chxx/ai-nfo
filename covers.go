@@ -13,6 +13,7 @@ import (
 	_ "image/png"
 	"io"
 	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,7 +110,36 @@ func (s *Store) coverInfo(id, scope string) (map[string]any, error) {
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	return map[string]any{"path": target.Path, "exists": s.videoAvailable(target.Path), "current": current, "preview_url": "/api/cover-image?id=" + v.ID + "&scope=" + scope}, nil
+	candidates, err := s.coverCandidates(target.Owner)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": target.Path, "exists": s.videoAvailable(target.Path), "current": current, "candidates": candidates, "preview_url": "/api/cover-image?id=" + v.ID + "&scope=" + scope}, nil
+}
+
+func (s *Store) coverCandidates(owner string) ([]CoverCandidate, error) {
+	rows, err := s.db.Query("SELECT id,metadata FROM cover_candidates WHERE owner=? AND created>? ORDER BY created DESC", owner, now()-86400)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []CoverCandidate{}
+	for rows.Next() {
+		var id, raw string
+		if err = rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		var candidate CoverCandidate
+		if json.Unmarshal([]byte(raw), &candidate) != nil {
+			continue
+		}
+		if candidate.ID == "" {
+			candidate.ID = id
+		}
+		candidate.PreviewURL = "/api/cover-image?candidate=" + url.QueryEscape(candidate.ID)
+		result = append(result, candidate)
+	}
+	return result, rows.Err()
 }
 func normalizeCover(raw []byte) ([]byte, int, int, error) {
 	return normalizeCoverSize(raw, false)

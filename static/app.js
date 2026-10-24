@@ -83,7 +83,31 @@ function inlineCoverPreview(v) {
   const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
   if (!c) return '';
   const label = coverLabel(v, c.scope);
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><div class="cover-preview-actions"><button type="button" class="secondary small" data-cover="${v.id}">重新选择封面</button><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></div></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><div class="cover-preview-actions"><button type="button" class="secondary small" data-cover="${v.id}">搜索新候选</button><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></div></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}"><p class="hint">正在读取已保存的候选封面…</p></section></section></td></tr>`;
+}
+function renderInlineCoverCandidates(id, candidates) {
+  const container = $('cover-candidates-' + id);
+  if (!container) return;
+  if (!candidates.length) { container.innerHTML = '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>'; return; }
+  container.innerHTML = `<h4>其他候选封面</h4><div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"><span>${escapeHtml(c.title || '未命名候选')}</span><small>${escapeHtml(coverMatchNames[c.match] || '待核对')} · ${c.width} × ${c.height}</small></button>`).join('')}</div><p class="hint">点击候选封面即可替换当前图片，并保留原封面备份。</p>`;
+}
+async function loadInlineCoverCandidates(id, scope) {
+  const container = $('cover-candidates-' + id);
+  if (!container) return;
+  try {
+    const data = await api('/api/covers?id=' + encodeURIComponent(id) + '&scope=' + encodeURIComponent(scope));
+    renderInlineCoverCandidates(id, data.candidates || []);
+  } catch (err) { container.innerHTML = `<p class="error">候选封面读取失败：${escapeHtml(err.message)}</p>`; }
+}
+async function saveInlineCover(button) {
+  const buttons = $('cover-candidates-' + button.dataset.coverVideo)?.querySelectorAll('[data-cover-candidate]') || [];
+  buttons.forEach(item => { item.disabled = true; });
+  try {
+    const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope: 'video', candidate_id: button.dataset.coverCandidate, overwrite: true});
+    toast(result.saved ? '封面已替换，原封面已保留备份' : '封面未发生变化');
+    await refresh();
+    if (state.coverPreview?.id === button.dataset.coverVideo) await loadInlineCoverCandidates(button.dataset.coverVideo, state.coverPreview.scope);
+  } finally { buttons.forEach(item => { item.disabled = false; }); }
 }
 function videoRow(v) {
   const sequence = v.kind === 'episode' ? `S${v.season ?? '?'} E${v.episode ?? '?'} · ${v.path.includes('/') ? v.path.slice(0, v.path.lastIndexOf('/')) : '根目录'}` : v.path;
@@ -277,19 +301,24 @@ $('video-list').onchange = event => {
   event.target.checked ? state.selected.add(id) : state.selected.delete(id);
   event.target.closest('tr').classList.toggle('selected-row', event.target.checked); renderSelection();
 };
-$('video-list').onclick = event => {
+$('video-list').onclick = run(async event => {
+  const candidate = event.target.closest('[data-cover-candidate]');
+  if (candidate) { await saveInlineCover(candidate); return; }
   const preview = event.target.closest('[data-cover-preview]'), close = event.target.closest('[data-close-preview]');
   if (preview || close) {
     const button = preview || close, id = button.dataset.coverPreview || button.dataset.closePreview, scope = button.dataset.coverScope;
     const wasOpen = state.coverPreview?.id === id && state.coverPreview.scope === scope;
     state.coverPreview = close || wasOpen ? null : {id, scope};
     renderVideos();
-    if (state.coverPreview) $('cover-preview-' + id)?.scrollIntoView({block:'nearest', behavior:'smooth'});
+    if (state.coverPreview) {
+      $('cover-preview-' + id)?.scrollIntoView({block:'nearest', behavior:'smooth'});
+      await loadInlineCoverCandidates(id, scope);
+    }
     if (close) [...$('video-list').querySelectorAll('[data-cover-preview]')].find(b => b.dataset.coverPreview === id && b.dataset.coverScope === scope)?.focus({preventScroll:true});
     return;
   }
   const edit = event.target.closest('[data-edit]'); if (edit) editor(edit.dataset.edit);
-};
+});
 $('library-browser').addEventListener('error', event => {
   const img = event.target;
   if (!img.matches?.('img[data-list-cover]')) return;

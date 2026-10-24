@@ -156,6 +156,14 @@ func TestCoverSearchAIAndFullDirectory(t *testing.T) {
 	if strings.Contains(encode(s.getConfig().public()), "secret") {
 		t.Fatal("search key exposed")
 	}
+	info, err := s.coverInfo(id, "video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, ok := info["candidates"].([]CoverCandidate)
+	if !ok || len(cached) != 1 || cached[0].ID != candidate.ID || !strings.Contains(cached[0].PreviewURL, "candidate=") {
+		t.Fatalf("cached candidates: %+v", info["candidates"])
+	}
 	draft(t, s, id)
 	saved, err := s.saveCover(SaveCoverRequest{ID: id, Scope: "video", CandidateID: candidate.ID})
 	if err != nil || saved["saved"] != true {
