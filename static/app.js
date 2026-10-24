@@ -89,7 +89,7 @@ function inlineCoverPreview(v) {
 }
 function inlineCoverCandidatesMarkup(candidates, id) {
   if (!candidates.length) return '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>';
-  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"><span>${escapeHtml(c.title || '未命名候选')}</span><small>${escapeHtml(coverMatchNames[c.match] || '待核对')} · ${c.width} × ${c.height}</small></button>`).join('')}</div>`;
+  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
 }
 function renderInlineCoverCandidates(id, candidates) {
   const container = $('cover-candidates-' + id);
