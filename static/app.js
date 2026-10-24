@@ -70,15 +70,16 @@ function renderSelection() {
 }
 function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
 function listCoverThumbnails(v) {
-  if (!v.covers?.length) return '<span class="no-cover">暂无封面</span>';
-  return '<div class="list-cover-thumbnails">' + v.covers.map(c => {
+  const covers = (v.covers || []).filter(c => c.scope === 'video');
+  if (!covers.length) return '<span class="no-cover">暂无封面</span>';
+  return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
     const label = coverLabel(v, c.scope);
     return `<button type="button" class="list-cover-thumb" data-cover-preview="${v.id}" data-cover-scope="${c.scope}" aria-expanded="${open}" aria-controls="cover-preview-${v.id}" aria-label="${open ? '收起' : '查看'}${label}：${escapeHtml(v.filename)}"><img data-list-cover src="${escapeHtml(c.thumbnail_url)}" alt="${label}" loading="lazy" decoding="async" width="88" height="58"><span class="cover-load-error" hidden>图片不可用</span><span>${label}</span></button>`;
   }).join('') + '</div>';
 }
 function inlineCoverPreview(v) {
-  if (state.coverPreview?.id !== v.id) return '';
+  if (state.coverPreview?.id !== v.id || state.coverPreview.scope !== 'video') return '';
   const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
   if (!c) return '';
   const label = coverLabel(v, c.scope);
