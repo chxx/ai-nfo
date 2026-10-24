@@ -85,7 +85,7 @@ function inlineCoverPreview(v) {
   const label = coverLabel(v, c.scope);
   const cached = state.coverCandidates[v.id + ':' + c.scope];
   const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id) : '<p class="hint">正在读取已保存的候选封面…</p>';
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><div class="cover-preview-actions"><button type="button" class="secondary small" data-cover="${v.id}">搜索新候选</button><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></div></header><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
 }
 function inlineCoverCandidatesMarkup(candidates, id) {
   if (!candidates.length) return '<p class="hint">没有可切换的候选封面；点击“搜索新候选”获取更多图片。</p>';
