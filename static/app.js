@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, batch: '', loading: false};
+const state = {videos: [], jobs: [], settings: {}, selected: new Set(), kind: 'all', page: 'library', folder: '', editor: null, coverPreview: null, directoryCover: null, expandedSeries: new Set(), batch: '', loading: false};
 const statusNames = {new: '等待整理', draft: '待确认', saved: '已保存', error: '处理失败', generating: '生成中'};
 const jobNames = {queued: '排队中', running: '进行中', cancelling: '正在取消', cancelled: '已取消', completed: '已完成', partial: '部分失败', interrupted: '已中断'};
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -58,6 +58,7 @@ function renderSelection() {
   $('open-cleanup').disabled = !!activeJob() || state.root_available === false;
   $('clear-selected').disabled = !state.selected.size || !!activeJob();
   $('clear-all-records').disabled = !state.videos.length || !!activeJob();
+  updateSeriesSelection();
 }
 function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
 function listCoverThumbnails(v) {
@@ -75,9 +76,17 @@ function inlineCoverPreview(v) {
   const label = coverLabel(v, c.scope);
   return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><header><div><h3>${label} · ${escapeHtml(v.metadata?.title || v.filename)}</h3><p>${escapeHtml(c.path)}</p></div><button type="button" class="secondary small" data-close-preview="${v.id}" data-cover-scope="${c.scope}">收起大图</button></header><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
 }
+function videoRow(v) {
+  const sequence = v.kind === 'episode' ? `${v.show?.title || '系列'} · S${v.season ?? '?'} E${v.episode ?? '?'}` : v.path;
+  return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
+}
 function renderVideos() {
   const videos = filtered();
+  $('series-controls').hidden = state.kind !== 'episode';
   if (state.coverPreview && !videos.some(v => v.id === state.coverPreview.id && v.covers?.some(c => c.scope === state.coverPreview.scope))) state.coverPreview = null;
+  const seriesFocus = document.activeElement?.closest('[data-series-toggle]');
+  const seriesFocusPath = seriesFocus?.dataset.seriesToggle, seriesFocusLabel = seriesFocus?.hasAttribute('aria-label');
+  const directoryFocus = document.activeElement?.closest('[data-directory-cover]')?.dataset.directoryCover;
   const focused = document.activeElement?.closest('[data-cover-preview], [data-close-preview]');
   const focusID = focused?.dataset.coverPreview || focused?.dataset.closePreview, focusScope = focused?.dataset.coverScope, focusClose = !!focused?.dataset.closePreview;
   $('result-count').textContent = `${videos.length} 个视频`;
@@ -88,11 +97,10 @@ function renderVideos() {
     $('empty-scan').hidden = !!state.videos.length;
     $('empty').querySelector('.steps').hidden = !!state.videos.length;
   }
-  $('video-list').innerHTML = videos.map(v => {
-    const sequence = v.kind === 'episode' ? `${v.show?.title || '系列'} · S${v.season ?? '?'} E${v.episode ?? '?'}` : v.path;
-    return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
-  }).join('');
+  $('video-list').innerHTML = state.kind === 'episode' ? renderSeriesRows(videos) : videos.map(videoRow).join('');
   renderSelection();
+  if (seriesFocusPath != null) [...$('video-list').querySelectorAll('[data-series-toggle]')].find(b => b.dataset.seriesToggle === seriesFocusPath && b.hasAttribute('aria-label') === seriesFocusLabel)?.focus({preventScroll:true});
+  if (directoryFocus != null) [...$('video-list').querySelectorAll('[data-directory-cover]')].find(b => b.dataset.directoryCover === directoryFocus)?.focus({preventScroll:true});
   if (focusID) { const selector = focusClose ? '[data-close-preview]' : '[data-cover-preview]'; [...$('video-list').querySelectorAll(selector)].find(b => (b.dataset.coverPreview || b.dataset.closePreview) === focusID && b.dataset.coverScope === focusScope)?.focus({preventScroll: true}); }
 }
 function renderJobs() {
@@ -218,13 +226,24 @@ document.querySelectorAll('[data-kind]').forEach(button => button.onclick = () =
   state.kind = button.dataset.kind; document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b === button)); renderVideos();
 });
 $('search').oninput = renderVideos; $('status-filter').onchange = renderVideos;
+$('expand-series').onclick = () => {
+  const expand = node => { state.expandedSeries.add(node.path); node.children.forEach(expand); };
+  expand(seriesTree(filtered())); renderVideos();
+};
+$('collapse-series').onclick = () => { state.expandedSeries.clear(); renderVideos(); };
 $('select-all').onchange = event => { filtered().forEach(v => event.target.checked ? state.selected.add(v.id) : state.selected.delete(v.id)); renderVideos(); };
 $('video-list').onchange = event => {
+  const path = event.target.dataset.seriesSelect;
+  if (path != null) { seriesMembers(path).forEach(v => event.target.checked ? state.selected.add(v.id) : state.selected.delete(v.id)); renderVideos(); return; }
   const id = event.target.dataset.select; if (!id) return;
   event.target.checked ? state.selected.add(id) : state.selected.delete(id);
   event.target.closest('tr').classList.toggle('selected-row', event.target.checked); renderSelection();
 };
 $('video-list').onclick = event => {
+  const directoryCover = event.target.closest('[data-directory-cover]');
+  if (directoryCover) { const path = directoryCover.dataset.directoryCover; state.directoryCover = state.directoryCover === path ? null : path; renderVideos(); return; }
+  const series = event.target.closest('[data-series-toggle]');
+  if (series) { const path = series.dataset.seriesToggle; state.expandedSeries.has(path) ? state.expandedSeries.delete(path) : state.expandedSeries.add(path); renderVideos(); return; }
   const preview = event.target.closest('[data-cover-preview]'), close = event.target.closest('[data-close-preview]');
   if (preview || close) {
     const button = preview || close, id = button.dataset.coverPreview || button.dataset.closePreview, scope = button.dataset.coverScope;
@@ -252,7 +271,7 @@ $('scan-form').onsubmit = run(async event => {
   event.preventDefault(); $('scan-submit').disabled = true; $('scan-feedback').textContent = '正在扫描…';
   try {
     const kind = $('scan-kind').value;
-    const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind, recursive: $('recursive').checked});
+    const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind, group_by_directory: kind === 'episode' && $('series-grouping').value === 'directory', recursive: $('recursive').checked});
     $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = kind; $('search').value = ''; $('status-filter').value = 'all';
     document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === kind));
     await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属系列。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);

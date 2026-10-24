@@ -38,6 +38,8 @@ jobs:
         run: |
           node --check static/app.js
           node --check static/covers.js
+          node --check static/series.js
+          node --test tests/*.test.cjs
 
       - name: Build test image
         run: docker build --tag ai-nfo:test .

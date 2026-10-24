@@ -96,9 +96,10 @@ func (s *Store) directories(rel string) (DirectoryList, error) {
 }
 
 type ScanRequest struct {
-	Path      string `json:"path"`
-	Kind      string `json:"kind"`
-	Recursive bool   `json:"recursive"`
+	Path             string `json:"path"`
+	Kind             string `json:"kind"`
+	Recursive        bool   `json:"recursive"`
+	GroupByDirectory bool   `json:"group_by_directory"`
 }
 type ScanResult struct {
 	Count        int      `json:"count"`
@@ -176,7 +177,11 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 				warn("多集合并文件需手动拆分元数据，已跳过：" + entry.Name())
 				return nil
 			}
-			v.ShowPath = &showPath
+			seriesPath := showPath
+			if body.GroupByDirectory {
+				seriesPath = s.relative(filepath.Dir(path))
+			}
+			v.ShowPath = &seriesPath
 			if m := episodePattern.FindStringSubmatch(stem); m != nil {
 				v.Season, v.Episode = parseNumber(m[1]), parseNumber(m[2])
 			} else {
@@ -208,12 +213,12 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 		return result, err
 	}
 	defer tx.Rollback()
-	if body.Kind == "episode" {
-		if _, err = tx.Exec("INSERT OR IGNORE INTO shows(path) VALUES (?)", showPath); err != nil {
-			return result, err
-		}
-	}
 	for _, v := range found {
+		if v.ShowPath != nil {
+			if _, err = tx.Exec("INSERT OR IGNORE INTO shows(path) VALUES (?)", *v.ShowPath); err != nil {
+				return result, err
+			}
+		}
 		var changed int
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM videos WHERE path=? AND
  (kind<>? OR show_path IS NOT ?)`, v.Path, v.Kind, v.ShowPath).Scan(&changed); err != nil {

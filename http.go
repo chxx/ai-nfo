@@ -85,6 +85,9 @@ func (a *webApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "/covers.js":
 			name = "covers.js"
 			mime = "text/javascript"
+		case "/series.js":
+			name = "series.js"
+			mime = "text/javascript"
 		case "/style.css":
 			name = "style.css"
 			mime = "text/css"
