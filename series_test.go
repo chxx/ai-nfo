@@ -9,7 +9,7 @@ import (
 
 func TestDirectorySeriesScan(t *testing.T) {
 	s := testStore(t)
-	paths := []string{"Hello Carrie/01 Alphabet/01 A.mp4", "Hello Carrie/01 Alphabet/02 B.mp4", "Hello Carrie/02 Phonics/01 Words/01 C.mp4", "Other/01 Alphabet/01 A.mp4", "root.mp4"}
+	paths := []string{"Hello Carrie/01 Alphabet/01 A.mp4", "Hello Carrie/01 Alphabet/02 B.mp4", "Hello Carrie/02 Phonics/01 Words/01 C.mp4", "Other/01 Alphabet/01 A.mp4", "Seasoned Course/Season 01/S01E01.mp4", "Seasoned Course/Season 02/S02E01.mp4", "root.mp4"}
 	for _, p := range paths {
 		put(t, s, p, "")
 	}
@@ -25,18 +25,22 @@ func TestDirectorySeriesScan(t *testing.T) {
 			t.Fatal(err)
 		}
 		dir := filepath.Dir(p)
-		if v.ShowPath == nil || *v.ShowPath != dir {
+		wantShowPath := dir
+		if strings.HasPrefix(p, "Seasoned Course/") {
+			wantShowPath = "Seasoned Course"
+		}
+		if v.ShowPath == nil || *v.ShowPath != wantShowPath {
 			t.Fatalf("wrong series for %s: %+v", p, v)
 		}
-		want := filepath.Base(dir)
-		if dir == "." {
+		want := filepath.Base(wantShowPath)
+		if wantShowPath == "." {
 			want = filepath.Base(s.root)
 		}
 		if v.Show.Title != want {
 			t.Fatal("wrong default title", v.Show.Title, want)
 		}
 		target, err := coverTargetPath(v, "series")
-		if err != nil || target.Path != filepath.Join(dir, "poster.jpg") {
+		if err != nil || target.Path != filepath.Join(wantShowPath, "poster.jpg") {
 			t.Fatal(target, err)
 		}
 	}

@@ -280,6 +280,12 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 			seriesPath := showPath
 			if body.GroupByDirectory {
 				seriesPath = s.relative(filepath.Dir(path))
+				// A season directory belongs to its parent TV show. Keeping
+				// tvshow.nfo and show artwork at that parent lets Kodi/Zidoo
+				// resolve one show across multiple Season XX folders.
+				if seasonPattern.MatchString(filepath.Base(filepath.Dir(path))) {
+					seriesPath = s.relative(filepath.Dir(filepath.Dir(path)))
+				}
 			}
 			v.ShowPath = &seriesPath
 			if m := episodePattern.FindStringSubmatch(stem); m != nil {
