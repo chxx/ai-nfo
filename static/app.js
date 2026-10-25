@@ -71,7 +71,7 @@ function renderSelection() {
 function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
 function listCoverThumbnails(v) {
   const covers = (v.covers || []).filter(c => c.scope === 'video');
-  if (!covers.length) return `<div class="list-cover-thumbnails"><button type="button" class="list-cover-thumb list-cover-empty" data-cover-preview="${v.id}" data-cover-scope="video" aria-expanded="false" aria-label="查看候选封面：${escapeHtml(v.filename)}"><span class="no-cover">暂无封面</span></button></div>`;
+  if (!covers.length) return '<span class="no-cover">暂无封面</span>';
   return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
     const label = coverLabel(v, c.scope);
@@ -81,11 +81,11 @@ function listCoverThumbnails(v) {
 function inlineCoverPreview(v) {
   if (state.coverPreview?.id !== v.id || state.coverPreview.scope !== 'video') return '';
   const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
-  const scope = 'video', label = coverLabel(v, scope);
-  const cached = state.coverCandidates[v.id + ':' + scope];
-  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, scope) : '';
-  const stage = c ? `<div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div>` : '';
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}候选封面"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}-${scope}">${candidates}</section>${stage}</section></td></tr>`;
+  if (!c) return '';
+  const label = coverLabel(v, c.scope);
+  const cached = state.coverCandidates[v.id + ':' + c.scope];
+  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, c.scope) : '';
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}-${c.scope}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
 }
 function inlineCoverCandidatesMarkup(candidates, id, scope) {
   if (!candidates.length) return '';
