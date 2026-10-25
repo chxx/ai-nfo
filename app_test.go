@@ -246,6 +246,40 @@ func TestNFOValidationAndAtomicWrites(t *testing.T) {
 		t.Fatal("symlink write accepted")
 	}
 }
+
+func TestNFOReadAndEdit(t *testing.T) {
+	s := testStore(t)
+	put(t, s, "course/video.mp4", "")
+	id := scan(t, s, "course", "movie")[0]
+	put(t, s, "course/video.nfo", "<movie><title>旧标题</title></movie>")
+	view, err := s.nfoFiles(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := view["files"].([]NFOViewFile)
+	if len(files) != 1 || !files[0].Exists || !strings.Contains(files[0].XML, "旧标题") {
+		t.Fatalf("read NFO: %+v", view)
+	}
+	result, err := s.saveNFO(NFOEditRequest{ID: id, Path: "course/video.nfo", XML: "<?xml version=\"1.0\"?><movie><title>新标题</title></movie>"})
+	if err != nil || result["saved"] != true {
+		t.Fatalf("save NFO: %+v %v", result, err)
+	}
+	content, _ := os.ReadFile(filepath.Join(s.root, "course/video.nfo"))
+	if !strings.Contains(string(content), "新标题") {
+		t.Fatal("NFO was not updated")
+	}
+	backups, _ := filepath.Glob(filepath.Join(s.root, "course/video.nfo.bak.*"))
+	if len(backups) != 1 {
+		t.Fatal("missing NFO backup")
+	}
+	if _, err = s.saveNFO(NFOEditRequest{ID: id, Path: "../video.nfo", XML: "<movie/>"}); err == nil {
+		t.Fatal("arbitrary NFO path accepted")
+	}
+	if _, err = s.saveNFO(NFOEditRequest{ID: id, Path: "course/video.nfo", XML: "<movie>"}); err == nil {
+		t.Fatal("invalid NFO XML accepted")
+	}
+}
+
 func TestEpisodeConflicts(t *testing.T) {
 	s := testStore(t)
 	for _, name := range []string{"course/S01E01.mp4", "course/01-again.mp4", "course/unknown.mp4"} {

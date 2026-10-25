@@ -122,7 +122,7 @@ async function saveInlineCover(button) {
 }
 function videoRow(v) {
   const sequence = v.kind === 'episode' ? `S${v.season ?? '?'} E${v.episode ?? '?'} · ${v.path.includes('/') ? v.path.slice(0, v.path.lastIndexOf('/')) : '根目录'}` : v.path;
-  return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
+  return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-nfo="${v.id}">查看 NFO ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
 }
 function renderVideos() {
   const active = document.activeElement;
@@ -256,6 +256,39 @@ function editor(id) {
   $('source-preview').textContent = '展开后读取文件名、内嵌标签、字幕和简介。'; $('source-preview').parentElement.open = false;
   $('editor-dialog').showModal();
 }
+async function openNFO(id) {
+  const row = state.videos.find(v => v.id === id); if (!row) return;
+  $('nfo-video-path').textContent = row.path;
+  $('nfo-files').textContent = '正在读取…';
+  $('nfo-dialog').showModal();
+  try {
+    const data = await api('/api/nfo?id=' + encodeURIComponent(id));
+    if (!$('nfo-dialog').open) return;
+    $('nfo-files').replaceChildren();
+    data.files.forEach(file => {
+      const section = document.createElement('section'); section.className = 'nfo-file-editor';
+      const heading = document.createElement('div'); heading.className = 'nfo-file-heading';
+      const name = document.createElement('strong'); name.textContent = file.path;
+      const status = document.createElement('span'); status.className = file.exists ? 'nfo-file-exists' : 'nfo-file-missing'; status.textContent = file.exists ? '已存在' : '文件不存在';
+      heading.append(name, status);
+      const textarea = document.createElement('textarea'); textarea.dataset.nfoPath = file.path; textarea.value = file.xml || ''; textarea.rows = 16; textarea.spellcheck = false; textarea.placeholder = '此 NFO 尚不存在，可在这里创建 XML';
+      const actions = document.createElement('div'); actions.className = 'form-actions';
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'primary small'; save.dataset.saveNfo = id; save.textContent = file.exists ? '保存此 NFO' : '创建此 NFO';
+      const feedback = document.createElement('span'); feedback.className = 'nfo-save-feedback';
+      actions.append(save, feedback); section.append(heading, textarea, actions); $('nfo-files').append(section);
+    });
+  } catch (err) { $('nfo-files').textContent = err.message; }
+}
+async function saveNFO(button) {
+  const section = button.closest('.nfo-file-editor'), textarea = section?.querySelector('textarea[data-nfo-path]');
+  if (!textarea || !textarea.value.trim()) { toast('NFO 内容不能为空', true); return; }
+  button.disabled = true; const feedback = section.querySelector('.nfo-save-feedback'); feedback.textContent = '正在保存…';
+  try {
+    await api('/api/nfo', {id: button.dataset.saveNfo, path: textarea.dataset.nfoPath, xml: textarea.value});
+    feedback.textContent = '已保存并保留备份';
+    await refresh();
+  } finally { button.disabled = false; }
+}
 const splitTags = value => value.split(/[,，]/).map(x => x.trim()).filter(Boolean);
 async function saveDraft() {
   if (!$('editor-form').reportValidity()) return false;
@@ -334,6 +367,7 @@ $('video-list').onclick = run(async event => {
     if (close) [...$('video-list').querySelectorAll('[data-cover-preview]')].find(b => b.dataset.coverPreview === id && b.dataset.coverScope === scope)?.focus({preventScroll:true});
     return;
   }
+  const nfo = event.target.closest('[data-nfo]'); if (nfo) { await openNFO(nfo.dataset.nfo); return; }
   const edit = event.target.closest('[data-edit]'); if (edit) editor(edit.dataset.edit);
 });
 $('library-browser').addEventListener('error', event => {
@@ -414,6 +448,7 @@ $('batch-form').onsubmit = run(async event => {
 });
 $('cancel-job').onclick = run(async () => { const job = activeJob(); if (job) { await api('/api/cancel', {id: job.id}); await refresh(); toast('将在当前文件或 AI 请求处理结束后停止'); } });
 $('editor-form').onsubmit = run(async event => { event.preventDefault(); if (await saveDraft()) { $('editor-dialog').close(); toast('草稿已保存，还未写入视频目录'); } });
+$('nfo-files').onclick = run(async event => { const button = event.target.closest('[data-save-nfo]'); if (button) await saveNFO(button); });
 $('read-embedded').onclick = run(async () => {
   const row = state.editor; if (!row) return;
   $('read-embedded').disabled = true;

@@ -248,6 +248,8 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 		case "/api/preview":
 			files, err := s.preview(query.Get("id"))
 			return map[string]any{"files": files}, err
+		case "/api/nfo":
+			return s.nfoFiles(query.Get("id"))
 		case "/api/context":
 			v, err := s.getVideo(query.Get("id"))
 			if err != nil {
@@ -322,6 +324,12 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.edit(body)
+		case "/api/nfo":
+			var body NFOEditRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			return s.saveNFO(body)
 		case "/api/jobs":
 			var body JobRequest
 			if err := decodeBody(raw, &body); err != nil {

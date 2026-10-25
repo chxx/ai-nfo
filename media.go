@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"io"
 	"io/fs"
@@ -25,6 +26,95 @@ var multiPattern = regexp.MustCompile(`(?i)E\d+`)
 var digitsPattern = regexp.MustCompile(`^\d+$`)
 
 func nfoPath(path string) string { return strings.TrimSuffix(path, filepath.Ext(path)) + ".nfo" }
+
+type NFOViewFile struct {
+	Path   string `json:"path"`
+	XML    string `json:"xml"`
+	Exists bool   `json:"exists"`
+}
+
+type NFOEditRequest struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+	XML  string `json:"xml"`
+}
+
+func nfoPaths(v Video) []string {
+	paths := []string{}
+	if v.Kind == "episode" && v.ShowPath != nil {
+		paths = append(paths, filepath.ToSlash(filepath.Join(*v.ShowPath, "tvshow.nfo")))
+	}
+	return append(paths, nfoPath(v.Path))
+}
+
+func (s *Store) nfoFiles(id string) (map[string]any, error) {
+	v, err := s.getVideo(id)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]NFOViewFile, 0, 2)
+	for _, rel := range nfoPaths(v) {
+		path, err := s.safe(rel, false)
+		if err != nil {
+			return nil, err
+		}
+		raw, readErr := os.ReadFile(path)
+		if errors.Is(readErr, os.ErrNotExist) {
+			files = append(files, NFOViewFile{Path: rel})
+			continue
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(raw) > 2<<20 {
+			return nil, userError("NFO 文件超过 2 MB，暂不支持在网页编辑")
+		}
+		files = append(files, NFOViewFile{Path: rel, XML: string(raw), Exists: true})
+	}
+	return map[string]any{"id": id, "files": files}, nil
+}
+
+func (s *Store) saveNFO(body NFOEditRequest) (map[string]any, error) {
+	if strings.TrimSpace(body.XML) == "" {
+		return nil, userError("NFO 内容不能为空")
+	}
+	if len([]byte(body.XML)) > 2<<20 {
+		return nil, userError("NFO 文件超过 2 MB")
+	}
+	var root struct{ XMLName xml.Name }
+	if err := xml.Unmarshal([]byte(body.XML), &root); err != nil {
+		return nil, userError("NFO XML 格式错误：" + err.Error())
+	}
+	switch root.XMLName.Local {
+	case "movie", "tvshow", "episodedetails":
+	default:
+		return nil, userError("NFO 根节点必须是 movie、tvshow 或 episodedetails")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureIdle(); err != nil {
+		return nil, err
+	}
+	v, err := s.getVideo(body.ID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := false
+	for _, path := range nfoPaths(v) {
+		if path == filepath.ToSlash(body.Path) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, userError("只能编辑当前视频或所属系列的 NFO 文件")
+	}
+	wrote, err := s.writeNFO(body.Path, body.XML, true)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"saved": wrote, "path": body.Path}, nil
+}
 func (s *Store) safe(rel string, mustExist bool) (string, error) {
 	if filepath.IsAbs(rel) || strings.ContainsRune(rel, 0) {
 		return "", userError("目录必须位于已挂载的视频根目录内")
