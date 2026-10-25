@@ -68,18 +68,24 @@ func (s *Store) targetCover(v Video, scope string) (coverTarget, error) {
 }
 
 func coverTargetPath(v Video, scope string) (coverTarget, error) {
-	if scope == "series" {
+	if scope == "series" || scope == "series-fanart" {
 		if v.Kind != "episode" || v.ShowPath == nil {
 			return coverTarget{}, userError("此视频不属于系列")
 		}
-		return coverTarget{"show:" + *v.ShowPath, filepath.ToSlash(filepath.Join(*v.ShowPath, "poster.jpg"))}, nil
+		name := "poster.jpg"
+		if scope == "series-fanart" {
+			name = "fanart.jpg"
+		}
+		return coverTarget{"show:" + *v.ShowPath, filepath.ToSlash(filepath.Join(*v.ShowPath, name))}, nil
 	}
-	if scope != "video" {
+	if scope != "video" && scope != "video-fanart" {
 		return coverTarget{}, userError("请选择系列封面或本集封面")
 	}
 	stem := strings.TrimSuffix(v.Path, filepath.Ext(v.Path))
 	suffix := "-poster.jpg"
-	if v.Kind == "episode" {
+	if scope == "video-fanart" {
+		suffix = "-fanart.jpg"
+	} else if v.Kind == "episode" {
 		suffix = "-thumb.jpg"
 	}
 	return coverTarget{"video:" + v.Path, stem + suffix}, nil
@@ -467,6 +473,20 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 		return nil, err
 	}
 	if saved {
+		// Zidoo uses a separate local fanart file for the detail-page background.
+		// Keep it in sync with the selected poster/still so one cover decision
+		// produces a complete local artwork set.
+		fanartScope := "video-fanart"
+		if body.Scope == "series" {
+			fanartScope = "series-fanart"
+		}
+		fanart, fanartErr := coverTargetPath(v, fanartScope)
+		if fanartErr != nil {
+			return nil, fanartErr
+		}
+		if _, fanartErr = s.writeFile(fanart.Path, raw, body.Overwrite); fanartErr != nil {
+			return nil, fanartErr
+		}
 		_, err = s.db.Exec("INSERT INTO cover_selections(owner,target,metadata,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET target=excluded.target,metadata=excluded.metadata,updated=excluded.updated", target.Owner, target.Path, metadata, now())
 		if err != nil {
 			return nil, err

@@ -169,8 +169,16 @@ func TestCoverSearchAIAndFullDirectory(t *testing.T) {
 	if err != nil || saved["saved"] != true {
 		t.Fatal(saved, err)
 	}
+	thumb, err := os.ReadFile(filepath.Join(s.root, directory, "01 Alphabet A Sound Song-thumb.jpg"))
+	if err != nil {
+		t.Fatal("episode still was not written", err)
+	}
+	fanart, err := os.ReadFile(filepath.Join(s.root, directory, "01 Alphabet A Sound Song-fanart.jpg"))
+	if err != nil || !bytes.Equal(thumb, fanart) {
+		t.Fatalf("episode fanart was not written: %v", err)
+	}
 	files, err := s.preview(id)
-	if err != nil || !strings.Contains(files[1].XML, `<thumb aspect="thumb">01 Alphabet A Sound Song-thumb.jpg</thumb>`) {
+	if err != nil || !strings.Contains(files[1].XML, `<thumb aspect="thumb">01 Alphabet A Sound Song-thumb.jpg</thumb>`) || !strings.Contains(files[1].XML, "<fanart>") || !strings.Contains(files[1].XML, `<thumb>01 Alphabet A Sound Song-fanart.jpg</thumb>`) {
 		t.Fatal(files, err)
 	}
 	// Series context uses the full hierarchy without treating the chosen episode as the whole series.
@@ -230,12 +238,16 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	imagePath := filepath.Join(s.root, "course/poster.jpg")
+	fanartPath := filepath.Join(s.root, "course/fanart.jpg")
 	original, err := os.ReadFile(imagePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, format, err := image.DecodeConfig(bytes.NewReader(original)); err != nil || format != "jpeg" {
 		t.Fatal("not normalized JPEG", err)
+	}
+	if fanart, err := os.ReadFile(fanartPath); err != nil || !bytes.Equal(original, fanart) {
+		t.Fatalf("series fanart was not written: %v", err)
 	}
 	w = request(app, "POST", "/api/covers/save", encode(body), nil, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"saved":false`) {
@@ -255,7 +267,7 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal("backup changed")
 	}
 	files, err := s.preview(ids[0])
-	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) {
+	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, "<fanart>") || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) {
 		t.Fatal(files, err)
 	}
 	w = request(app, "GET", "/api/cover-image?candidate="+c.ID, "", nil, "")

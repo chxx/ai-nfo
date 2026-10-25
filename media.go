@@ -382,14 +382,14 @@ func (s *Store) preview(id string) ([]NFOFile, error) {
 		if v.ShowPath == nil || v.Show == nil {
 			return nil, userError("系列信息缺失，请检查草稿")
 		}
-		text, err := nfoXML("tvshow", v.Show, identifier("show:"+*v.ShowPath), nil, nil, "", s.coverThumbnail(v, "series"))
+		text, err := nfoXML("tvshow", v.Show, identifier("show:"+*v.ShowPath), nil, nil, "", s.coverThumbnail(v, "series"), s.coverThumbnail(v, "series-fanart"))
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, NFOFile{filepath.ToSlash(filepath.Join(*v.ShowPath, "tvshow.nfo")), text})
 		kind, showTitle = "episodedetails", v.Show.Title
 	}
-	text, err := nfoXML(kind, v.Metadata, v.ID, v.Season, v.Episode, showTitle, s.coverThumbnail(v, "video"))
+	text, err := nfoXML(kind, v.Metadata, v.ID, v.Season, v.Episode, showTitle, s.coverThumbnail(v, "video"), s.coverThumbnail(v, "video-fanart"))
 	if err != nil {
 		return nil, err
 	}
