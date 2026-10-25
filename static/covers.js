@@ -3,16 +3,8 @@ const coverState = {video: null, candidates: [], busy: false};
 const coverMatchNames = {likely: 'AI：可能匹配', uncertain: 'AI：待核对', unlikely: 'AI：可能不匹配', unreviewed: '待手动核对', local: '本地截图', embedded: '文件内嵌封面'};
 function coverBusy(busy) {
   coverState.busy = busy;
-  ['cover-search', 'cover-embedded', 'cover-snapshot', 'cover-video-scope', 'cover-series-scope', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy || id === 'cover-series-scope' && coverState.video?.kind !== 'episode');
+  ['cover-search', 'cover-embedded', 'cover-snapshot', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy);
   $('cover-save').disabled = busy || !document.querySelector('input[name="cover-choice"]:checked');
-}
-function setCoverScope(scope) {
-  const series = scope === 'series';
-  $('cover-scope').value = series ? 'series' : 'video';
-  $('cover-video-scope').setAttribute('aria-pressed', String(!series));
-  $('cover-series-scope').setAttribute('aria-pressed', String(series));
-  $('cover-video-scope').classList.toggle('selected', !series);
-  $('cover-series-scope').classList.toggle('selected', series);
 }
 function renderCoverCandidates(candidates) {
   coverState.candidates = candidates;
@@ -31,11 +23,13 @@ async function openCovers(id, scope = 'video') {
   coverState.video = video;
   $('cover-dialog').querySelector('.dialog-message')?.remove();
   $('cover-current').hidden = true; $('cover-current').replaceChildren();
-  $('cover-video').textContent = video.path;
-  setCoverScope(video.kind === 'episode' && scope === 'series' ? 'series' : 'video');
+  const series = video.kind === 'episode' && scope === 'series';
+  $('cover-title').textContent = series ? '识别系列封面' : '识别本集封面';
+  $('cover-video').textContent = series && video.show_path ? '系列目录：' + video.show_path : video.path;
+  $('cover-scope').value = series ? 'series' : 'video';
   $('cover-source').value = ''; $('cover-query').value = ''; $('cover-overwrite').checked = false;
   $('cover-ai').checked = !!(state.settings.model && state.settings.base_url);
-  $('cover-feedback').textContent = '选择系列或本集封面，填写来源链接或直接联网查找。';
+  $('cover-feedback').textContent = $('cover-scope').value === 'series' ? '填写系列来源链接或直接联网查找系列封面。' : '填写本集来源链接或直接联网查找封面。';
   renderCoverCandidates([]); $('cover-dialog').showModal();
   coverBusy(true); try { await loadCurrentCover(); await loadEmbeddedCovers(); } finally { coverBusy(false); }
 }
@@ -49,13 +43,6 @@ async function loadEmbeddedCovers() {
 }
 $('cover-embedded').onclick = run(async () => { coverBusy(true); try { await loadEmbeddedCovers(); } finally { coverBusy(false); } });
 $('video-list').addEventListener('click', run(async event => { const button = event.target.closest('[data-cover]'); if (button) await openCovers(button.dataset.cover); }));
-async function switchCoverScope(scope) {
-  if (scope === 'series' && coverState.video?.kind !== 'episode') return;
-  setCoverScope(scope); renderCoverCandidates([]); $('cover-feedback').textContent = ''; $('cover-overwrite').checked = false; coverBusy(true);
-  try { await loadCurrentCover(); await loadEmbeddedCovers(); } finally { coverBusy(false); }
-}
-$('cover-video-scope').onclick = run(async () => switchCoverScope('video'));
-$('cover-series-scope').onclick = run(async () => switchCoverScope('series'));
 $('cover-candidates').onchange = () => coverBusy(coverState.busy);
 $('cover-form').onsubmit = run(async event => {
   event.preventDefault(); $('cover-dialog').querySelector('.dialog-message')?.remove(); coverBusy(true); renderCoverCandidates([]); $('cover-feedback').textContent = '正在检索来源、提取图片并判断匹配度，最多等待约 105 秒…';

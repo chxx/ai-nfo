@@ -43,6 +43,7 @@
 .directory-detail>.secondary{flex-shrink:0}
 .directory-options{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:18px;padding-bottom:15px;border-bottom:1px solid var(--line)}
 .directory-options .checkbox-label{margin:0;font-size:12px;color:#62766b}
+.directory-options-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .directory-options .checkbox-label input{margin:0}
 .directory-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;padding:18px 22px}
 .directory-cards[hidden],#directory-header[hidden],#series-sidebar[hidden],#directory-preview[hidden],#video-table[hidden],#list-pagination[hidden]{display:none}

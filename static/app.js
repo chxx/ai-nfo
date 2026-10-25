@@ -292,6 +292,8 @@ $('page-size').onchange = () => { state.pageSize = Number($('page-size').value);
 $('page-prev').onclick = () => { state.listPage--; renderVideos(); $('video-table').scrollIntoView({block:'start'}); };
 $('page-next').onclick = () => { state.listPage++; renderVideos(); $('video-table').scrollIntoView({block:'start'}); };
 $('library-browser').onclick = event => {
+  const coverAction = event.target.closest('[data-directory-cover-action]');
+  if (coverAction) { openCovers(coverAction.dataset.directoryCoverAction, 'series').catch(err => toast(err.message, true)); return; }
   const directory = event.target.closest('[data-directory]');
   if (directory) { navigateDirectory(directory.dataset.directory); return; }
   const select = event.target.closest('[data-select-directory]');
