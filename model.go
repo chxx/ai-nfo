@@ -148,6 +148,10 @@ type nfoThumb struct {
 type nfoFanart struct {
 	Thumb string `xml:"thumb"`
 }
+type nfoArt struct {
+	Poster string `xml:"poster,omitempty"`
+	Fanart string `xml:"fanart,omitempty"`
+}
 type nfoDocument struct {
 	XMLName   xml.Name
 	Title     string     `xml:"title"`
@@ -161,6 +165,7 @@ type nfoDocument struct {
 	Episode   *int       `xml:"episode,omitempty"`
 	Thumb     *nfoThumb  `xml:"thumb,omitempty"`
 	Fanart    *nfoFanart `xml:"fanart,omitempty"`
+	Art       *nfoArt    `xml:"art,omitempty"`
 }
 
 func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thumb, fanart string) (string, error) {
@@ -177,6 +182,9 @@ func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thu
 	}
 	if fanart != "" {
 		doc.Fanart = &nfoFanart{Thumb: fanart}
+	}
+	if thumb != "" || fanart != "" {
+		doc.Art = &nfoArt{Poster: thumb, Fanart: fanart}
 	}
 	if kind == "episodedetails" {
 		if season == nil || episode == nil {
