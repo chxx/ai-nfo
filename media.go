@@ -473,9 +473,13 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 				return nil
 			}
 			seriesPath := showPath
-			_, seasonFromDirectory, _ := s.seasonAncestor(path, start)
+			seasonDir, seasonFromDirectory, hasSeasonDirectory := s.seasonAncestor(path, start)
 			if body.GroupByDirectory {
 				seriesPath, _, _ = s.seriesPathForVideo(path, start, true)
+			} else if hasSeasonDirectory && filepath.Clean(seasonDir) == filepath.Clean(start) {
+				// Even when the user scans one season folder as a whole, keep
+				// tvshow.nfo and show artwork in the parent show directory.
+				seriesPath = s.relative(filepath.Dir(seasonDir))
 			}
 			v.ShowPath = &seriesPath
 			if m := episodePattern.FindStringSubmatch(stem); m != nil {

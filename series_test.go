@@ -96,6 +96,12 @@ func TestSeasonDirectoryLayout(t *testing.T) {
 	if err != nil || len(files) != 2 || files[0].Path != "Course/tvshow.nfo" || files[1].Path != "Course/Season 01/Unit 1/S01E01-intro.nfo" {
 		t.Fatalf("wrong Kodi NFO layout: %+v %v", files, err)
 	}
+	if result, err = s.scan(ScanRequest{Path: "Course/Season 01", Kind: "episode", Recursive: true}); err != nil || result.Count != 1 {
+		t.Fatal(result, err)
+	}
+	if v, err := s.getVideo(identifier(paths[0])); err != nil || v.ShowPath == nil || *v.ShowPath != "Course" {
+		t.Fatalf("scanning one season split the show: %+v %v", v, err)
+	}
 	for _, name := range []string{"Season 01", "S02", "第3季", "01 Alphabet"} {
 		if _, ok := seasonDirectory(name); ok == (name == "01 Alphabet") {
 			t.Fatalf("season directory detection for %q: %v", name, ok)
