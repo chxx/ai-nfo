@@ -80,7 +80,7 @@
     <button id="read-embedded" type="button" class="secondary small">读取内嵌资料</button><p class="hint">补充默认标题和空白的简介、分类、导演；不会覆盖已编辑内容。读取后需保存草稿。</p><p id="editor-notes" class="hint"></p><details><summary>查看将发送给 AI 的资料</summary><pre id="source-preview">展开后读取文件名、内嵌标签、字幕和简介。</pre></details><div class="form-actions"><button type="submit" class="primary">保存草稿</button><button id="preview-nfo" type="button" class="secondary">保存草稿并预览 NFO</button></div><div id="nfo-preview" hidden></div>
   </form></dialog>
   <dialog id="cover-dialog" class="cover-dialog" aria-labelledby="cover-title"><form id="cover-form"><div class="dialog-heading"><h2 id="cover-title">查找视频封面</h2><button type="button" data-close="cover-dialog" class="icon-button" aria-label="关闭">×</button></div>
-    <p id="cover-video" class="file-path"></p><label>封面用途<select id="cover-scope"><option value="video">当前视频 / 本集封面</option><option value="series">系列封面（全系列共用）</option></select></label>
+    <p id="cover-video" class="file-path"></p><div class="cover-scope-actions" role="group" aria-label="封面用途"><input id="cover-scope" type="hidden" value="video"><button type="button" id="cover-video-scope" class="secondary small" aria-pressed="true">识别本集封面</button><button type="button" id="cover-series-scope" class="secondary small" aria-pressed="false">识别系列封面</button></div>
     <div id="cover-current" class="cover-current" hidden></div><p id="cover-target" class="hint"></p>
     <label>原课程 / 本集视频网页链接（可选）<input id="cover-source" type="url" placeholder="填写原网页地址，也支持公开图片直链"><small>填写链接时直接提取该页面封面；留空则联网搜索。</small></label>
     <label>搜索词（可选）<input id="cover-query" maxlength="300" placeholder="留空由 AI 提炼；未启用 AI 时使用系列名和文件名"></label>
