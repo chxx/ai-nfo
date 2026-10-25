@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -87,6 +88,78 @@ func coverTargetPath(v Video, scope string) (coverTarget, error) {
 		suffix = "-thumb.jpg"
 	}
 	return coverTarget{"video:" + v.Path, stem + suffix}, nil
+}
+
+func (s *Store) seasonArtworkPaths(v Video) ([]string, error) {
+	if v.Kind != "episode" || v.ShowPath == nil {
+		return nil, nil
+	}
+	seasons := map[int]bool{}
+	rows, err := s.db.Query("SELECT DISTINCT season FROM videos WHERE show_path=? AND season IS NOT NULL ORDER BY season", *v.ShowPath)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var season int
+		if err = rows.Scan(&season); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if season > 0 {
+			seasons[season] = true
+		}
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	if v.Season != nil && *v.Season > 0 {
+		seasons[*v.Season] = true
+	}
+	result := []string{}
+	for season := range seasons {
+		result = append(result,
+			filepath.ToSlash(filepath.Join(*v.ShowPath, fmt.Sprintf("season%02d-poster.jpg", season))),
+			filepath.ToSlash(filepath.Join(*v.ShowPath, fmt.Sprintf("season%02d-fanart.jpg", season))))
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// ensureSeasonArtworkAliases makes an existing show poster usable by players
+// that look for season01-poster.jpg / season01-fanart.jpg. It never replaces an
+// existing alias, so a manually customized season image remains untouched.
+func (s *Store) ensureSeasonArtworkAliases(v Video) error {
+	if v.Kind != "episode" || v.ShowPath == nil {
+		return nil
+	}
+	series, err := coverTargetPath(v, "series")
+	if err != nil {
+		return err
+	}
+	poster, _, err := s.loadCoverAsset(series)
+	if err != nil {
+		return nil
+	}
+	fanart := poster
+	if target, fanartErr := coverTargetPath(v, "series-fanart"); fanartErr == nil {
+		if raw, _, loadErr := s.loadCoverAsset(target); loadErr == nil {
+			fanart = raw
+		}
+	}
+	paths, err := s.seasonArtworkPaths(v)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		raw := poster
+		if strings.HasSuffix(path, "-fanart.jpg") {
+			raw = fanart
+		}
+		if _, err = s.writeFile(path, raw, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (s *Store) coverThumbnail(v Video, scope string) string {
 	target, err := s.targetCover(v, scope)
@@ -489,7 +562,16 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if saved {
+	artwork := raw
+	if !saved && !body.Overwrite {
+		// A series may have been generated before season artwork support was
+		// added. Use the existing root poster to fill only missing aliases;
+		// never replace a user's existing selection without overwrite=true.
+		if existing, _, loadErr := s.loadCoverAsset(target); loadErr == nil {
+			artwork = existing
+		}
+	}
+	if saved || body.Scope == "series" {
 		// Zidoo uses a separate local fanart file for the detail-page background.
 		// Keep it in sync with the selected poster/still so one cover decision
 		// produces a complete local artwork set.
@@ -501,9 +583,22 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 		if fanartErr != nil {
 			return nil, fanartErr
 		}
-		if _, fanartErr = s.writeFile(fanart.Path, raw, body.Overwrite); fanartErr != nil {
+		if _, fanartErr = s.writeFile(fanart.Path, artwork, body.Overwrite); fanartErr != nil {
 			return nil, fanartErr
 		}
+		if body.Scope == "series" {
+			seasonPaths, seasonErr := s.seasonArtworkPaths(v)
+			if seasonErr != nil {
+				return nil, seasonErr
+			}
+			for _, seasonPath := range seasonPaths {
+				if _, seasonErr = s.writeFile(seasonPath, artwork, body.Overwrite); seasonErr != nil {
+					return nil, seasonErr
+				}
+			}
+		}
+	}
+	if saved {
 		if _, err = s.db.Exec("INSERT INTO cover_assets(owner,target,image,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET target=excluded.target,image=excluded.image,updated=excluded.updated", target.Owner, target.Path, raw, now()); err != nil {
 			return nil, err
 		}

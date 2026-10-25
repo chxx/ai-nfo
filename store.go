@@ -110,6 +110,10 @@ func newStore(root, data string) (*Store, error) {
 	s.jobCancels = make(map[string]context.CancelFunc)
 	s.client = &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	s.webClient = publicWebClient()
+	if err = s.repairSeasonRecords(); err != nil {
+		s.close()
+		return nil, err
+	}
 	return s, nil
 }
 func (s *Store) close() {

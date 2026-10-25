@@ -249,6 +249,11 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 	if fanart, err := os.ReadFile(fanartPath); err != nil || !bytes.Equal(original, fanart) {
 		t.Fatalf("series fanart was not written: %v", err)
 	}
+	for _, path := range []string{"course/season01-poster.jpg", "course/season01-fanart.jpg"} {
+		if seasonArt, err := os.ReadFile(filepath.Join(s.root, path)); err != nil || !bytes.Equal(original, seasonArt) {
+			t.Fatalf("season artwork was not written: %s %v", path, err)
+		}
+	}
 	var stored []byte
 	if err := s.db.QueryRow("SELECT image FROM cover_assets WHERE owner=?", "show:course").Scan(&stored); err != nil || !bytes.Equal(original, stored) {
 		t.Fatalf("selected cover was not stored in database: %v", err)

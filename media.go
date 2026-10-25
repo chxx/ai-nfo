@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -19,7 +22,10 @@ import (
 
 var videoExtensions = map[string]bool{".mp4": true, ".mkv": true, ".avi": true, ".mov": true, ".m4v": true, ".webm": true, ".ts": true, ".flv": true, ".wmv": true}
 var episodePattern = regexp.MustCompile(`(?i)S(\d{1,3})E(\d{1,4})(?:[^0-9]|$)`)
-var seasonPattern = regexp.MustCompile(`(?i)(?:season\s*|^S)(\d{1,3})$`)
+var seasonDirectoryPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^(?:season[\s._-]*|s[\s._-]*)(\d{1,3})(?:\s*[._-].*)?$`),
+	regexp.MustCompile(`^第\s*(\d{1,3})\s*季(?:\s*[._-].*)?$`),
+}
 var numberPattern = regexp.MustCompile(`^(?:第\s*)?(\d{1,4})(?:[集课讲章._\s-]|$)`)
 var multiPattern = regexp.MustCompile(`(?i)E\d+`)
 var digitsPattern = regexp.MustCompile(`^\d+$`)
@@ -210,6 +216,195 @@ type ScanResult struct {
 
 func intPointer(v int) *int     { return &v }
 func parseNumber(s string) *int { v, _ := strconv.Atoi(s); return &v }
+
+// seasonDirectory recognizes the common season folder spellings without
+// mistaking numbered lesson folders (for example "01 Alphabet") for a season.
+// The season folder may contain another level of folders, so callers walk its
+// ancestors instead of checking only the video's direct parent.
+func seasonDirectory(name string) (int, bool) {
+	name = strings.TrimSpace(name)
+	for _, pattern := range seasonDirectoryPatterns {
+		if match := pattern.FindStringSubmatch(name); match != nil {
+			season, _ := strconv.Atoi(match[1])
+			return season, true
+		}
+	}
+	return 0, false
+}
+
+func (s *Store) seasonAncestor(path, stop string) (string, int, bool) {
+	dir := filepath.Dir(path)
+	stopPath := stop
+	if stopPath != "" {
+		if p, err := s.safe(stopPath, false); err == nil {
+			stopPath = p
+		}
+	}
+	for {
+		if season, ok := seasonDirectory(filepath.Base(dir)); ok {
+			return dir, season, true
+		}
+		if dir == s.root || stopPath != "" && dir == stopPath {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", 0, false
+}
+
+func (s *Store) seriesPathForVideo(path, scanRoot string, groupByDirectory bool) (string, int, bool) {
+	if !groupByDirectory {
+		return "", 0, false
+	}
+	if seasonDir, season, ok := s.seasonAncestor(path, scanRoot); ok {
+		return s.relative(filepath.Dir(seasonDir)), season, true
+	}
+	return s.relative(filepath.Dir(path)), 0, false
+}
+
+// moveSeasonSidecars repairs the layout produced by older versions that put
+// the show files inside Season 01. Only the well-known Kodi/Zidoo sidecars are
+// considered; episode files and episode NFOs stay in their season directory.
+func (s *Store) moveSeasonSidecars(seasonDir, showDir string, season int) error {
+	if filepath.Clean(seasonDir) == filepath.Clean(showDir) {
+		return nil
+	}
+	names := []string{"tvshow.nfo", "poster.jpg", "fanart.jpg"}
+	if season > 0 {
+		names = append(names, fmt.Sprintf("season%02d-poster.jpg", season), fmt.Sprintf("season%02d-fanart.jpg", season))
+	}
+	for _, name := range names {
+		source, target := filepath.Join(seasonDir, name), filepath.Join(showDir, name)
+		sourceInfo, err := os.Lstat(source)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+			continue
+		}
+		targetInfo, targetErr := os.Lstat(target)
+		if errors.Is(targetErr, os.ErrNotExist) {
+			if err = os.Rename(source, target); err != nil {
+				return err
+			}
+			continue
+		}
+		if targetErr != nil || targetInfo.Mode()&os.ModeSymlink != 0 || !targetInfo.Mode().IsRegular() {
+			continue
+		}
+		// If both copies are identical, remove only the stale season copy.
+		sourceBytes, readSourceErr := os.ReadFile(source)
+		targetBytes, readTargetErr := os.ReadFile(target)
+		if readSourceErr == nil && readTargetErr == nil && bytes.Equal(sourceBytes, targetBytes) {
+			if err = os.Remove(source); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// repairSeasonRecords upgrades records created before season folders were
+// treated as part of their parent show. It also moves old show-level sidecars
+// to that parent so a rescan/restart does not leave Zidoo seeing two shows.
+func (s *Store) repairSeasonRecords() error {
+	rows, err := s.db.Query("SELECT id,path,show_path,season FROM videos WHERE kind='episode' AND show_path IS NOT NULL")
+	if err != nil {
+		return err
+	}
+	type record struct {
+		id, path, oldShow string
+		season            sql.NullInt64
+	}
+	records := []record{}
+	for rows.Next() {
+		var r record
+		if err = rows.Scan(&r.id, &r.path, &r.oldShow, &r.season); err != nil {
+			rows.Close()
+			return err
+		}
+		records = append(records, r)
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	type change struct {
+		record
+		newShow, seasonDir string
+		season             int
+		updateSeason       bool
+	}
+	changes := []change{}
+	for _, r := range records {
+		seasonDir, season, ok := s.seasonAncestor(filepath.Join(s.root, filepath.FromSlash(r.path)), "")
+		if !ok {
+			continue
+		}
+		newShow := s.relative(filepath.Dir(seasonDir))
+		stem := strings.TrimSuffix(filepath.Base(r.path), filepath.Ext(r.path))
+		updateSeason := !episodePattern.MatchString(stem) && (!r.season.Valid || int(r.season.Int64) != season)
+		if filepath.ToSlash(newShow) == filepath.ToSlash(r.oldShow) && !updateSeason {
+			continue
+		}
+		changes = append(changes, change{record: r, newShow: newShow, seasonDir: seasonDir, season: season, updateSeason: updateSeason})
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, c := range changes {
+		if _, err = tx.Exec("INSERT OR IGNORE INTO shows(path,metadata) VALUES(?,(SELECT metadata FROM shows WHERE path=?))", c.newShow, c.oldShow); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE videos SET show_path=? WHERE id=?", c.newShow, c.id); err != nil {
+			return err
+		}
+		if c.updateSeason {
+			if _, err = tx.Exec("UPDATE videos SET season=? WHERE id=?", c.season, c.id); err != nil {
+				return err
+			}
+		}
+		newOwner, oldOwner := "show:"+c.newShow, "show:"+c.oldShow
+		newPoster := filepath.ToSlash(filepath.Join(c.newShow, "poster.jpg"))
+		var image []byte
+		var updated float64
+		if readErr := tx.QueryRow("SELECT image,updated FROM cover_assets WHERE owner=?", oldOwner).Scan(&image, &updated); readErr == nil {
+			if _, err = tx.Exec("INSERT OR IGNORE INTO cover_assets(owner,target,image,updated) VALUES(?,?,?,?)", newOwner, newPoster, image, updated); err != nil {
+				return err
+			}
+		}
+		var metadata string
+		if readErr := tx.QueryRow("SELECT metadata,updated FROM cover_selections WHERE owner=?", oldOwner).Scan(&metadata, &updated); readErr == nil {
+			if _, err = tx.Exec("INSERT OR IGNORE INTO cover_selections(owner,target,metadata,updated) VALUES(?,?,?,?)", newOwner, newPoster, metadata, updated); err != nil {
+				return err
+			}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	for _, c := range changes {
+		// A read-only or partially mounted NAS must not prevent the service from
+		// starting; the next scan/save will report the sidecar repair failure.
+		_ = s.moveSeasonSidecars(c.seasonDir, filepath.Join(s.root, filepath.FromSlash(c.newShow)), c.season)
+		if v, getErr := s.getVideo(c.id); getErr == nil {
+			_ = s.ensureSeasonArtworkAliases(v)
+		}
+	}
+	return nil
+}
+
 func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 	result := ScanResult{IDs: []string{}, Warnings: []string{}}
 	if body.Kind != "movie" && body.Kind != "episode" {
@@ -278,23 +473,15 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 				return nil
 			}
 			seriesPath := showPath
+			_, seasonFromDirectory, _ := s.seasonAncestor(path, start)
 			if body.GroupByDirectory {
-				seriesPath = s.relative(filepath.Dir(path))
-				// A season directory belongs to its parent TV show. Keeping
-				// tvshow.nfo and show artwork at that parent lets Kodi/Zidoo
-				// resolve one show across multiple Season XX folders.
-				if seasonPattern.MatchString(filepath.Base(filepath.Dir(path))) {
-					seriesPath = s.relative(filepath.Dir(filepath.Dir(path)))
-				}
+				seriesPath, _, _ = s.seriesPathForVideo(path, start, true)
 			}
 			v.ShowPath = &seriesPath
 			if m := episodePattern.FindStringSubmatch(stem); m != nil {
 				v.Season, v.Episode = parseNumber(m[1]), parseNumber(m[2])
 			} else {
-				v.Season = intPointer(1)
-				if m := seasonPattern.FindStringSubmatch(filepath.Base(filepath.Dir(path))); m != nil {
-					v.Season = parseNumber(m[1])
-				}
+				v.Season = intPointer(max(1, seasonFromDirectory))
 				if m := numberPattern.FindStringSubmatch(stem); m != nil {
 					v.Episode = parseNumber(m[1])
 				}
@@ -348,6 +535,21 @@ func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 	}
 	if err = tx.Commit(); err != nil {
 		return result, err
+	}
+	for _, v := range found {
+		if v.Kind != "episode" || v.ShowPath == nil {
+			continue
+		}
+		seasonDir, season, ok := s.seasonAncestor(filepath.Join(s.root, filepath.FromSlash(v.Path)), start)
+		if !ok {
+			continue
+		}
+		if err = s.moveSeasonSidecars(seasonDir, filepath.Join(s.root, filepath.FromSlash(*v.ShowPath)), season); err != nil {
+			warn("无法整理剧集海报或 tvshow.nfo：" + filepath.Base(seasonDir))
+		}
+		if err = s.ensureSeasonArtworkAliases(v); err != nil {
+			warn("无法补齐季海报：" + filepath.Base(filepath.Dir(v.Path)))
+		}
 	}
 	result.Count = len(found)
 	return result, nil
