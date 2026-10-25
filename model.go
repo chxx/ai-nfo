@@ -141,18 +141,22 @@ type nfoID struct {
 	Default string `xml:"default,attr"`
 	Value   string `xml:",chardata"`
 }
+type nfoThumb struct {
+	Aspect string `xml:"aspect,attr"`
+	Value  string `xml:",chardata"`
+}
 type nfoDocument struct {
 	XMLName   xml.Name
-	Title     string   `xml:"title"`
-	Plot      string   `xml:"plot"`
-	Directors []string `xml:"director,omitempty"`
-	ID        nfoID    `xml:"uniqueid"`
-	Genres    []string `xml:"genre"`
-	Tags      []string `xml:"tag"`
-	ShowTitle string   `xml:"showtitle,omitempty"`
-	Season    *int     `xml:"season,omitempty"`
-	Episode   *int     `xml:"episode,omitempty"`
-	Thumb     string   `xml:"thumb,omitempty"`
+	Title     string    `xml:"title"`
+	Plot      string    `xml:"plot"`
+	Directors []string  `xml:"director,omitempty"`
+	ID        nfoID     `xml:"uniqueid"`
+	Genres    []string  `xml:"genre"`
+	Tags      []string  `xml:"tag"`
+	ShowTitle string    `xml:"showtitle,omitempty"`
+	Season    *int      `xml:"season,omitempty"`
+	Episode   *int      `xml:"episode,omitempty"`
+	Thumb     *nfoThumb `xml:"thumb,omitempty"`
 }
 
 func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thumb string) (string, error) {
@@ -160,7 +164,13 @@ func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thu
 		return "", userError("请先生成或编辑元数据")
 	}
 	doc := nfoDocument{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, Directors: m.Directors, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
-	doc.Thumb = thumb
+	if thumb != "" {
+		aspect := "poster"
+		if kind == "episodedetails" {
+			aspect = "thumb"
+		}
+		doc.Thumb = &nfoThumb{Aspect: aspect, Value: thumb}
+	}
 	if kind == "episodedetails" {
 		if season == nil || episode == nil {
 			return "", userError("请先填写季数和集数，再预览或保存剧集 NFO")

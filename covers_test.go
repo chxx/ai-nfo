@@ -170,7 +170,7 @@ func TestCoverSearchAIAndFullDirectory(t *testing.T) {
 		t.Fatal(saved, err)
 	}
 	files, err := s.preview(id)
-	if err != nil || !strings.Contains(files[1].XML, "<thumb>01 Alphabet A Sound Song-thumb.jpg</thumb>") {
+	if err != nil || !strings.Contains(files[1].XML, `<thumb aspect="thumb">01 Alphabet A Sound Song-thumb.jpg</thumb>`) {
 		t.Fatal(files, err)
 	}
 	// Series context uses the full hierarchy without treating the chosen episode as the whole series.
@@ -255,7 +255,7 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal("backup changed")
 	}
 	files, err := s.preview(ids[0])
-	if err != nil || !strings.Contains(files[0].XML, "<thumb>poster.jpg</thumb>") {
+	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) {
 		t.Fatal(files, err)
 	}
 	w = request(app, "GET", "/api/cover-image?candidate="+c.ID, "", nil, "")
