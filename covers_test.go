@@ -281,8 +281,12 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	files, err = s.preview(ids[0])
-	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) {
-		t.Fatal("database artwork was not used for NFO references", files, err)
+	if err != nil || strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) {
+		t.Fatal("NFO referenced artwork sidecars that no longer exist", files, err)
+	}
+	w = request(app, "GET", "/api/cover-image?id="+ids[0]+"&scope=series", "", nil, "")
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatal("database artwork should remain available to the web UI", w.Code)
 	}
 	w = request(app, "GET", "/api/cover-image?candidate="+c.ID, "", nil, "")
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {

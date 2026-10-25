@@ -222,11 +222,15 @@ func TestAutoCoverWebSelectionAndFailureIsolation(t *testing.T) {
 
 func TestAutoCoverSelectionAndRestart(t *testing.T) {
 	candidates := []CoverCandidate{{ID: "uncertain", Match: "uncertain", Width: 4000, Height: 3000}, {ID: "small", Match: "likely", Width: 128, Height: 72}, {ID: "large", Match: "likely", Width: 1280, Height: 720}}
-	if got := bestAutoCover(candidates, true, "video"); got == nil || got.ID != "large" {
+	if got := bestAutoCover(candidates, true, "video", "episode"); got == nil || got.ID != "large" {
 		t.Fatal(got)
 	}
-	if got := bestAutoCover(candidates[:1], true, "video"); got != nil {
+	if got := bestAutoCover(candidates[:1], true, "video", "episode"); got != nil {
 		t.Fatal("uncertain source selected")
+	}
+	posters := []CoverCandidate{{ID: "landscape", Match: "likely", Width: 1920, Height: 1080}, {ID: "portrait", Match: "likely", Width: 1000, Height: 1500}}
+	if got := bestAutoCover(posters, true, "video", "movie"); got == nil || got.ID != "portrait" {
+		t.Fatal("movie poster ratio was not preferred", got)
 	}
 	root, data := t.TempDir(), t.TempDir()
 	s, err := newStore(root, data)

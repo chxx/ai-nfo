@@ -171,7 +171,7 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 	}
 }
 
-func bestAutoCover(candidates []CoverCandidate, web bool, scope string) *CoverCandidate {
+func bestAutoCover(candidates []CoverCandidate, web bool, scope, kind string) *CoverCandidate {
 	eligible := []CoverCandidate{}
 	for _, c := range candidates {
 		// Text matching is not image recognition. Uncertain web matches fall back to a real video frame.
@@ -183,8 +183,8 @@ func bestAutoCover(candidates []CoverCandidate, web bool, scope string) *CoverCa
 	sort.SliceStable(eligible, func(i, j int) bool {
 		score := func(c CoverCandidate) float64 {
 			ratio := float64(c.Width) / float64(max(1, c.Height))
-			ideal := 16.0 / 9
-			if scope == "series" {
+			ideal := 16.0 / 9 // episode stills use the video's landscape ratio
+			if scope == "series" || (scope == "video" && kind == "movie") {
 				ideal = 2.0 / 3
 			}
 			return math.Log2(float64(max(1, c.Width*c.Height))) - math.Abs(math.Log(ratio/ideal))
@@ -219,7 +219,7 @@ func (s *Store) autoCover(ctx context.Context, task CoverTask) (bool, error) {
 	failures := []string{}
 	embedded, err := s.embeddedCoversWork(ctx, CoverRequest{ID: v.ID, Scope: task.Scope})
 	if err == nil {
-		chosen = bestAutoCover(embedded.Candidates, false, task.Scope)
+		chosen = bestAutoCover(embedded.Candidates, false, task.Scope, v.Kind)
 	} else {
 		failures = append(failures, publicError(err))
 	}
@@ -229,7 +229,7 @@ func (s *Store) autoCover(ctx context.Context, task CoverTask) (bool, error) {
 	if chosen == nil {
 		web, err := s.searchCoversWork(ctx, CoverRequest{ID: v.ID, Scope: task.Scope, UseAI: true})
 		if err == nil {
-			chosen = bestAutoCover(web.Candidates, true, task.Scope)
+			chosen = bestAutoCover(web.Candidates, true, task.Scope, v.Kind)
 			if chosen == nil {
 				failures = append(failures, "联网候选未获得明确匹配")
 			}
