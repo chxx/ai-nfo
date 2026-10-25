@@ -228,12 +228,12 @@ func TestNFOValidationAndAtomicWrites(t *testing.T) {
 		t.Fatal(job)
 	}
 	backups, _ := filepath.Glob(filepath.Join(s.root, "video.nfo.bak.*"))
-	if len(backups) != 1 {
-		t.Fatal(backups)
+	if len(backups) != 0 {
+		t.Fatal("unexpected NFO backup", backups)
 	}
-	b, _ = os.ReadFile(backups[0])
-	if string(b) != "original" {
-		t.Fatal("backup differs")
+	b, _ = os.ReadFile(filepath.Join(s.root, "video.nfo"))
+	if string(b) == "original" {
+		t.Fatal("overwrite did not replace the NFO")
 	}
 	put(t, s, "video.mkv", "")
 	if _, err = s.preview(id); err == nil {
@@ -269,8 +269,8 @@ func TestNFOReadAndEdit(t *testing.T) {
 		t.Fatal("NFO was not updated")
 	}
 	backups, _ := filepath.Glob(filepath.Join(s.root, "course/video.nfo.bak.*"))
-	if len(backups) != 1 {
-		t.Fatal("missing NFO backup")
+	if len(backups) != 0 {
+		t.Fatal("unexpected NFO backup", backups)
 	}
 	if _, err = s.saveNFO(NFOEditRequest{ID: id, Path: "../video.nfo", XML: "<movie/>"}); err == nil {
 		t.Fatal("arbitrary NFO path accepted")

@@ -263,12 +263,8 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	backups, _ := filepath.Glob(imagePath + ".bak.*")
-	if len(backups) != 1 {
-		t.Fatal(backups)
-	}
-	backup, _ := os.ReadFile(backups[0])
-	if !bytes.Equal(original, backup) {
-		t.Fatal("backup changed")
+	if len(backups) != 0 {
+		t.Fatal("unexpected poster backup", backups)
 	}
 	files, err := s.preview(ids[0])
 	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, "<fanart>") || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) || strings.Contains(files[0].XML, "<art>") {

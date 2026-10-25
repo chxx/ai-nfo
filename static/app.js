@@ -118,7 +118,7 @@ async function saveInlineCover(button) {
   buttons.forEach(item => { item.disabled = true; });
   try {
     const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope, candidate_id: button.dataset.coverCandidate, overwrite: true});
-    toast(result.saved ? '海报已替换，原海报已保留备份' : '海报未发生变化');
+    toast(result.saved ? '海报已替换' : '海报未发生变化');
     delete state.coverCandidates[button.dataset.coverVideo + ':' + scope];
     await refresh();
     if (state.coverPreview?.id === button.dataset.coverVideo) await loadInlineCoverCandidates(button.dataset.coverVideo, state.coverPreview.scope);
@@ -235,7 +235,7 @@ function batch(action) {
   $('batch-notice').textContent = covers ? '按内嵌海报、AI 联网匹配、视频截图的顺序获取，自动选择并保存；已有海报保留。可能产生模型与搜索费用。' : generate ? '文件名、目录、内嵌标签、字幕和简介片段将发送到 AI。自动海报会调用联网搜索并直接写入图片文件，已有海报保留。文字草稿仍需确认保存。' : '已有 NFO 默认保留。海报仍在获取时，NFO 可能尚不包含图片引用，可等待海报完成后再保存。';
   $('overwrite').parentElement.hidden = covers;
   $('overwrite').checked = false;
-  $('overwrite-label').textContent = generate ? '重新生成已有草稿（将替换手动修改的内容）' : '覆盖已有 NFO（每次覆盖前先保留 .bak 备份）';
+  $('overwrite-label').textContent = generate ? '重新生成已有草稿（将替换手动修改的内容）' : '覆盖已有 NFO';
   $('auto-cover-option').hidden = !generate;
   $('batch-auto-covers').checked = true;
   $('batch-submit').textContent = covers ? '开始自动获取' : generate ? '开始生成' : '保存到 NAS';
@@ -463,7 +463,7 @@ $('nfo-preview').onclick = run(async event => {
   try {
     state.editor = await api('/api/edit', editorBody());
     for (const textarea of files) await api('/api/nfo', {id: button.dataset.saveNfoPreview, path: textarea.dataset.nfoPath, xml: textarea.value});
-    toast('草稿和编辑后的 NFO 已保存，原文件已保留备份');
+    toast('草稿和编辑后的 NFO 已保存');
     await refresh();
   } finally { button.disabled = false; }
 });

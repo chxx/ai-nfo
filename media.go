@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -585,14 +584,6 @@ func (s *Store) writeFile(rel string, data []byte, overwrite bool) (bool, error)
 		return false, err
 	}
 	if overwrite {
-		if _, e := os.Stat(target); e == nil {
-			backup := target + ".bak." + time.Now().Format("20060102-150405") + "-" + randomID()[:8]
-			if err = copyExclusive(target, backup); err != nil {
-				return false, err
-			}
-		} else if !errors.Is(e, os.ErrNotExist) {
-			return false, e
-		}
 		err = os.Rename(f.Name(), target)
 	} else {
 		err = os.Link(f.Name(), target)
@@ -601,30 +592,4 @@ func (s *Store) writeFile(rel string, data []byte, overwrite bool) (bool, error)
 		}
 	}
 	return err == nil, err
-}
-func copyExclusive(source, target string) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	info, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return userError("备份源不是普通文件")
-	}
-	output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-	if _, err = io.Copy(output, input); err != nil {
-		return err
-	}
-	if err = output.Sync(); err != nil {
-		return err
-	}
-	return output.Close()
 }

@@ -87,7 +87,7 @@
     <label class="checkbox-label"><input id="cover-ai" type="checkbox" checked> 使用 AI 辅助判断来源匹配度（独立搜索服务也会提炼搜索词）</label><p class="hint">AI 原生联网会调用当前模型搜索，不受上方辅助匹配开关影响。会将课程名称、文件名和简介片段用于搜索 / AI 匹配。可能产生接口费用；AI 判断基于来源文字，仍需核对图片。</p>
     <div class="form-actions"><button id="cover-embedded" type="button" class="secondary">读取内嵌海报</button><button id="cover-search" type="submit" class="primary">联网查找海报</button><label class="snapshot-time">截图时间（秒）<input id="cover-seconds" type="number" min="0" max="86400" value="5" step="0.1"></label><button id="cover-snapshot" type="button" class="secondary">从本集截图</button></div>
     <p id="cover-feedback" role="status" class="hint"></p><div id="cover-candidates" class="cover-grid"></div>
-    <label class="checkbox-label"><input id="cover-overwrite" type="checkbox"> 覆盖已有海报（先保留 .bak 备份）</label><div class="form-actions"><button id="cover-save" type="button" class="primary" disabled>保存选中海报</button><button type="button" data-close="cover-dialog" class="secondary">关闭</button></div>
+    <label class="checkbox-label"><input id="cover-overwrite" type="checkbox"> 覆盖已有海报</label><div class="form-actions"><button id="cover-save" type="button" class="primary" disabled>保存选中海报</button><button type="button" data-close="cover-dialog" class="secondary">关闭</button></div>
   </form></dialog>
   <dialog id="cleanup-dialog" aria-labelledby="cleanup-title"><form id="cleanup-form"><div class="dialog-heading"><h2 id="cleanup-title">清理不可访问视频</h2><button type="button" data-close="cleanup-dialog" class="icon-button" aria-label="关闭">×</button></div>
     <p id="cleanup-summary"></p><p class="muted">范围为整个视频库，不受当前筛选或勾选影响。确认后移除下列视频记录及其草稿；不删除视频、字幕或 NFO 文件。若文件只是暂时离线，请先恢复访问。</p>

@@ -13,7 +13,7 @@ function renderCoverCandidates(candidates) {
 }
 async function loadCurrentCover() {
   const data = await api('/api/covers?id=' + coverState.video.id + '&scope=' + $('cover-scope').value);
-  $('cover-target').textContent = '保存位置：' + data.path + '。保存海报后，下一次保存 NFO 会包含图片引用。';
+  $('cover-target').textContent = '保存位置：' + data.path + '。保存海报后，下一次保存 NFO 会包含图片引用。覆盖时直接替换原文件。';
   $('cover-current').hidden = !data.exists;
   $('cover-current').innerHTML = data.exists ? `<img src="${escapeHtml(data.preview_url)}&t=${Date.now()}" alt="当前海报"><div><strong>当前海报</strong><p>${escapeHtml(data.path)}</p>${data.current?.source_url ? `<a href="${escapeHtml(data.current.source_url)}" target="_blank" rel="noopener noreferrer">查看来源 ↗</a>` : ''}</div>` : '';
   const aiCandidates = (data.candidates || []).filter(candidate => candidate.kind === 'web' && ['likely', 'uncertain', 'unlikely'].includes(candidate.match));
