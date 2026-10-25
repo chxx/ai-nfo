@@ -324,6 +324,13 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.edit(body)
+		case "/api/preview":
+			var body EditRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			files, err := s.previewEdit(body)
+			return map[string]any{"files": files}, err
 		case "/api/nfo":
 			var body NFOEditRequest
 			if err := decodeBody(raw, &body); err != nil {

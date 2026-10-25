@@ -454,16 +454,43 @@ func (s *Store) preview(id string) ([]NFOFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.previewVideo(v)
+}
+
+func (s *Store) previewEdit(body EditRequest) ([]NFOFile, error) {
+	v, err := s.getVideo(body.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err = body.Metadata.validate(); err != nil {
+		return nil, err
+	}
+	v.Metadata = body.Metadata
+	if v.Kind == "episode" {
+		for _, n := range []*int{body.Season, body.Episode} {
+			if n != nil && (*n < 0 || *n > 9999) {
+				return nil, userError("季数、集数必须是 0 到 9999 的整数")
+			}
+		}
+		if err = body.Show.validate(); err != nil {
+			return nil, err
+		}
+		v.Season, v.Episode, v.Show = body.Season, body.Episode, body.Show
+	}
+	return s.previewVideo(v)
+}
+
+func (s *Store) previewVideo(v Video) ([]NFOFile, error) {
 	if v.Metadata == nil {
 		return nil, userError("请先生成或编辑元数据")
 	}
-	if err = s.checkVideoStem(v.Path); err != nil {
+	if err := s.checkVideoStem(v.Path); err != nil {
 		return nil, err
 	}
 	files, kind, showTitle := []NFOFile{}, "movie", ""
 	if v.Kind == "episode" {
 		var count int
-		if err = s.db.QueryRow("SELECT COUNT(*) FROM videos WHERE show_path=? AND season=? AND episode=? AND id<>?", v.ShowPath, v.Season, v.Episode, v.ID).Scan(&count); err != nil {
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM videos WHERE show_path=? AND season=? AND episode=? AND id<>?", v.ShowPath, v.Season, v.Episode, v.ID).Scan(&count); err != nil {
 			return nil, err
 		}
 		if count > 0 {

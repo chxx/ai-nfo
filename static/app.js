@@ -257,8 +257,7 @@ function editor(id) {
   $('editor-dialog').showModal();
 }
 const splitTags = value => value.split(/[,，]/).map(x => x.trim()).filter(Boolean);
-async function saveDraft() {
-  if (!$('editor-form').reportValidity()) return false;
+function editorBody() {
   const row = state.editor;
   const body = {id: row.id, metadata: {title: $('edit-title').value, plot: $('edit-plot').value, directors: splitTags($('edit-directors').value), genres: splitTags($('edit-genres').value), tags: splitTags($('edit-tags').value), notes: row.metadata?.notes || ''}};
   if (row.kind === 'episode') {
@@ -266,6 +265,10 @@ async function saveDraft() {
     body.episode = $('edit-episode').value === '' ? null : Number($('edit-episode').value);
     body.show = {...row.show, title: $('edit-show-title').value, plot: $('edit-show-plot').value, directors: splitTags($('edit-show-directors').value)};
   }
+  return body;
+}
+async function saveDraft(body = editorBody()) {
+  if (!$('editor-form').reportValidity()) return false;
   state.editor = await api('/api/edit', body); await refresh(); return true;
 }
 async function saveSettings() {
@@ -432,8 +435,8 @@ $('read-embedded').onclick = run(async () => {
   } finally { $('read-embedded').disabled = false; }
 });
 $('preview-nfo').onclick = run(async () => {
-  if (!await saveDraft()) return;
-  const {files} = await api('/api/preview?id=' + state.editor.id);
+  if (!$('editor-form').reportValidity()) return;
+  const {files} = await api('/api/preview', editorBody());
   const box = $('nfo-preview'); box.replaceChildren();
   const title = document.createElement('p'); title.className = 'hint'; title.textContent = '可在下方直接修改 XML，确认后保存到 NAS。'; box.append(title);
   files.forEach(file => {
@@ -443,17 +446,18 @@ $('preview-nfo').onclick = run(async () => {
     section.append(name, textarea); box.append(section);
   });
   const actions = document.createElement('div'); actions.className = 'form-actions';
-  const save = document.createElement('button'); save.type = 'button'; save.className = 'primary'; save.dataset.saveNfoPreview = state.editor.id; save.textContent = '保存编辑后的 NFO';
+  const save = document.createElement('button'); save.type = 'button'; save.className = 'primary'; save.dataset.saveNfoPreview = state.editor.id; save.textContent = '保存草稿并写入 NFO';
   actions.append(save); box.append(actions); box.hidden = false;
 });
 $('nfo-preview').onclick = run(async event => {
   const button = event.target.closest('[data-save-nfo-preview]'); if (!button) return;
   const files = [...$('nfo-preview').querySelectorAll('textarea[data-nfo-path]')];
-  if (!files.length) return;
+  if (!files.length || !$('editor-form').reportValidity()) return;
   button.disabled = true;
   try {
+    state.editor = await api('/api/edit', editorBody());
     for (const textarea of files) await api('/api/nfo', {id: button.dataset.saveNfoPreview, path: textarea.dataset.nfoPath, xml: textarea.value});
-    toast('NFO 已保存，原文件已保留备份');
+    toast('草稿和编辑后的 NFO 已保存，原文件已保留备份');
     await refresh();
   } finally { button.disabled = false; }
 });
