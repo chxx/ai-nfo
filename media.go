@@ -355,7 +355,22 @@ func (s *Store) repairSeasonRecords() error {
 		}
 		changes = append(changes, change{record: r, newShow: newShow, seasonDir: seasonDir, season: season, updateSeason: updateSeason})
 	}
+	repairArtwork := func() {
+		for _, r := range records {
+			v, getErr := s.getVideo(r.id)
+			if getErr != nil || v.ShowPath == nil {
+				continue
+			}
+			seasonDir, season, ok := s.seasonAncestor(filepath.Join(s.root, filepath.FromSlash(r.path)), "")
+			if !ok {
+				continue
+			}
+			_ = s.moveSeasonSidecars(seasonDir, filepath.Join(s.root, filepath.FromSlash(*v.ShowPath)), season)
+			_ = s.ensureSeasonArtworkAliases(v)
+		}
+	}
 	if len(changes) == 0 {
+		repairArtwork()
 		return nil
 	}
 	tx, err := s.db.Begin()
@@ -402,6 +417,9 @@ func (s *Store) repairSeasonRecords() error {
 			_ = s.ensureSeasonArtworkAliases(v)
 		}
 	}
+	// Also repair records that were already normalized by an earlier version:
+	// their root poster may exist while season aliases were never written.
+	repairArtwork()
 	return nil
 }
 
