@@ -27,7 +27,7 @@ func (s *Store) acquireCover(ctx context.Context, wait bool) (func(), error) {
 	}
 	if !s.coverMu.TryRLock() {
 		release()
-		return nil, userError("正在清理记录，请稍后重试封面操作")
+		return nil, userError("正在清理记录，请稍后重试海报操作")
 	}
 	return func() { s.coverMu.RUnlock(); release() }, nil
 }
@@ -76,7 +76,7 @@ func queueCoverTasks(tx *sql.Tx, tasks []CoverTask) (string, []CoverTask, error)
 	if len(queued) == 0 {
 		return "", queued, nil
 	}
-	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,'covers','queued',?,?,?,'自动获取封面；按配置的并发上限执行，已有封面保留')", jobID, encode(queued), len(queued), now())
+	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,'covers','queued',?,?,?,'自动获取海报；按配置的并发上限执行，已有海报保留')", jobID, encode(queued), len(queued), now())
 	return jobID, queued, err
 }
 
@@ -131,7 +131,7 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 					if ctx.Err() != nil {
 						status = "cancelled"
 						done = 0
-						message = "已取消，已保存的封面保留"
+						message = "已取消，已保存的海报保留"
 					} else {
 						status = "failed"
 						failed = 1
@@ -140,7 +140,7 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 				} else if skipped {
 					status = "skipped"
 					skip = 1
-					message = "已有封面已保留"
+					message = "已有海报已保留"
 				}
 				tx, e := s.db.Begin()
 				if e != nil {
@@ -163,11 +163,11 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 	workers.Wait()
 	if ctx.Err() != nil {
 		s.db.Exec("UPDATE cover_tasks SET status='cancelled',error='已取消，等待重试' WHERE job_id=? AND status IN ('queued','running')", id)
-		s.db.Exec("UPDATE jobs SET status='cancelled',message='封面任务已取消；已保存结果保留，可重试未完成项' WHERE id=?", id)
+		s.db.Exec("UPDATE jobs SET status='cancelled',message='海报任务已取消；已保存结果保留，可重试未完成项' WHERE id=?", id)
 	} else {
 		// Unexpected storage failures must not look like successful completion.
 		s.db.Exec("UPDATE cover_tasks SET status='failed',error='处理被中断，请重试' WHERE job_id=? AND status IN ('queued','running')", id)
-		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END,message=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN message ELSE '封面任务已完成，已有封面保留' END WHERE id=?", id, id, id, id, id)
+		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END,message=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN message ELSE '海报任务已完成，已有海报保留' END WHERE id=?", id, id, id, id, id)
 	}
 }
 
@@ -207,13 +207,13 @@ func (s *Store) autoCover(ctx context.Context, task CoverTask) (bool, error) {
 		return false, err
 	}
 	if target.Owner != task.Owner {
-		return false, userError("视频所属系列已变化，请重新创建封面任务")
+		return false, userError("视频所属剧集已变化，请重新创建海报任务")
 	}
 	if s.videoAvailable(target.Path) {
 		return true, nil
 	}
 	if !v.Exists {
-		return false, userError("视频不可访问，无法自动获取封面")
+		return false, userError("视频不可访问，无法自动获取海报")
 	}
 	var chosen *CoverCandidate
 	failures := []string{}
@@ -295,7 +295,7 @@ func (s *Store) retryCoverJob(id string) (map[string]string, error) {
 	}
 	var status string
 	if err := s.db.QueryRow("SELECT status FROM jobs WHERE id=? AND action='covers'", id).Scan(&status); err != nil {
-		return nil, userError("找不到封面任务")
+		return nil, userError("找不到海报任务")
 	}
 	if status == "queued" || status == "running" || status == "cancelling" {
 		return nil, userError("请等待任务结束后再重试")

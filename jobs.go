@@ -206,7 +206,7 @@ func (s *Store) retryJob(id string) (map[string]string, error) {
 		return nil, userError("找不到任务")
 	}
 	if action != "generate" && action != "save" {
-		return nil, userError("请使用封面任务的重试入口")
+		return nil, userError("请使用海报任务的重试入口")
 	}
 	if status == "queued" || status == "running" || status == "cancelling" {
 		return nil, userError("请等待任务结束后再重试")
@@ -280,7 +280,7 @@ func (s *Store) processVideo(ctx context.Context, id, action string, overwrite b
 				if err != nil {
 					return false, err
 				}
-				show, err = s.ai(ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整系列；内嵌标签仅来自当前单集，不能代表整个系列；请保守概括"})
+				show, err = s.ai(ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整剧集；内嵌标签仅来自当前单集，不能代表整个剧集；请保守概括"})
 				if err != nil {
 					return false, err
 				}
@@ -330,7 +330,7 @@ func (s *Store) processVideo(ctx context.Context, id, action string, overwrite b
 	}
 	message := ""
 	if showSkipped {
-		message = "已有 tvshow.nfo 已保留；系列介绍未覆盖"
+		message = "已有 tvshow.nfo 已保留；剧集介绍未覆盖"
 	}
 	_, err = s.db.Exec("UPDATE videos SET status='saved',error=?,updated=? WHERE id=?", message, now(), id)
 	return false, err

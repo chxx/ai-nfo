@@ -39,7 +39,7 @@ func (s *Store) loadCoverAsset(target coverTarget) ([]byte, float64, error) {
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxCoverBytes {
 		if err == nil {
-			err = userError("封面文件不可读取")
+			err = userError("海报文件不可读取")
 		}
 		return nil, 0, err
 	}

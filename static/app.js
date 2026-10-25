@@ -7,7 +7,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': 
 const jobActive = j => ['queued', 'running', 'cancelling'].includes(j.status);
 const activeTextJob = () => state.jobs.find(j => j.action !== 'covers' && jobActive(j));
 const activeJob = () => activeTextJob() || state.jobs.find(jobActive);
-const jobTitle = action => ({generate:'AI 生成资料', save:'保存 NFO', covers:'自动获取封面'})[action] || action;
+const jobTitle = action => ({generate:'AI 生成资料', save:'保存 NFO', covers:'自动获取海报'})[action] || action;
 let coverDetailID = '';
 let toastTimer;
 let cleanupIDs = [];
@@ -68,12 +68,12 @@ function renderSelection() {
   $('clear-all-records').disabled = !state.videos.length || !!activeJob();
   updateSeriesSelection();
 }
-function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
+function coverLabel(v, scope) { return scope === 'series' ? '剧集海报' : v.kind === 'episode' ? '单集海报' : '视频海报'; }
 function listCoverThumbnails(v) {
   const covers = (v.covers || []).filter(c => c.scope === 'video');
   if (!covers.length) {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === 'video' && state.coverPreview.missing;
-    return `<button type="button" class="no-cover no-cover-button" data-cover-preview="${escapeHtml(v.id)}" data-cover-scope="video" data-cover-missing="true" aria-expanded="${open}" aria-controls="cover-preview-${escapeHtml(v.id)}" aria-label="${open ? '收起' : '加载'} ${escapeHtml(v.filename)} 的 AI 候选封面">暂无图片</button>`;
+    return `<button type="button" class="no-cover no-cover-button" data-cover-preview="${escapeHtml(v.id)}" data-cover-scope="video" data-cover-missing="true" aria-expanded="${open}" aria-controls="cover-preview-${escapeHtml(v.id)}" aria-label="${open ? '收起' : '加载'} ${escapeHtml(v.filename)} 的 AI 候选海报">暂无图片</button>`;
   }
   return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
@@ -88,13 +88,13 @@ function inlineCoverPreview(v) {
   const scope = state.coverPreview.scope;
   const label = coverLabel(v, scope);
   const cached = state.coverCandidates[v.id + ':' + scope];
-  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, scope) : '<p class="no-cover-candidates">正在加载 AI 候选封面…</p>';
-  const stage = c ? `<div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div>` : '';
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}候选封面"><section class="inline-cover-candidates" aria-label="AI 候选封面" id="cover-candidates-${v.id}-${scope}">${candidates}</section>${stage}</section></td></tr>`;
+  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, scope) : '<p class="no-cover-candidates">正在加载 AI 候选海报…</p>';
+  const stage = c ? `<div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>海报无法加载，请检查文件是否仍可访问。</p></div>` : '';
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}候选海报"><section class="inline-cover-candidates" aria-label="AI 候选海报" id="cover-candidates-${v.id}-${scope}">${candidates}</section>${stage}</section></td></tr>`;
 }
 function inlineCoverCandidatesMarkup(candidates, id, scope) {
-  if (!candidates.length) return '<p class="no-cover-candidates">没有已保存的 AI 候选封面，请点击“查找封面”重新识别。</p>';
-  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" data-cover-scope="${scope}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
+  if (!candidates.length) return '<p class="no-cover-candidates">没有已保存的 AI 候选海报，请点击“查找海报”重新识别。</p>';
+  return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" data-cover-scope="${scope}" title="使用此海报"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选海报')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
 }
 function renderInlineCoverCandidates(id, scope, candidates) {
   const container = $('cover-candidates-' + id + '-' + scope);
@@ -118,7 +118,7 @@ async function saveInlineCover(button) {
   buttons.forEach(item => { item.disabled = true; });
   try {
     const result = await api('/api/covers/save', {id: button.dataset.coverVideo, scope, candidate_id: button.dataset.coverCandidate, overwrite: true});
-    toast(result.saved ? '封面已替换，原封面已保留备份' : '封面未发生变化');
+    toast(result.saved ? '海报已替换，原海报已保留备份' : '海报未发生变化');
     delete state.coverCandidates[button.dataset.coverVideo + ':' + scope];
     await refresh();
     if (state.coverPreview?.id === button.dataset.coverVideo) await loadInlineCoverCandidates(button.dataset.coverVideo, state.coverPreview.scope);
@@ -127,7 +127,7 @@ async function saveInlineCover(button) {
 }
 function videoRow(v) {
   const sequence = v.kind === 'episode' ? `S${v.season ?? '?'} E${v.episode ?? '?'} · ${v.path.includes('/') ? v.path.slice(0, v.path.lastIndexOf('/')) : '根目录'}` : v.path;
-  return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找封面 ↗</button></td></tr>${inlineCoverPreview(v)}`;
+  return `<tr class="${state.selected.has(v.id) ? 'selected-row' : ''}"><td class="check"><input type="checkbox" data-select="${v.id}" aria-label="选择 ${escapeHtml(v.filename)}" ${state.selected.has(v.id) ? 'checked' : ''}></td><td class="list-cover-cell">${listCoverThumbnails(v)}</td><td><div class="video-info"><span class="video-icon ${v.kind === 'episode' ? 'series' : ''}">${v.kind === 'episode' ? '▤' : '▷'}</span><div><strong title="${escapeHtml(v.path)}">${escapeHtml(v.metadata?.title || v.filename)}</strong><small title="${escapeHtml(v.path)}">${escapeHtml(sequence)}</small></div></div></td><td><span class="badge ${v.status}">${statusNames[v.status] || v.status}</span>${v.has_nfo ? '<span class="existing-note">已有 NFO 文件</span>' : ''}${!v.exists ? '<span class="error">文件不可访问</span>' : ''}${v.error ? `<span class="existing-note" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0, 22))}${v.error.length > 22 ? '…' : ''}</span>` : ''}</td><td>${size(v.size)}</td><td><button class="text-button" data-edit="${v.id}" ${activeJob() ? 'disabled' : ''}>编辑资料 ↗</button><button class="text-button" data-cover="${v.id}">查找海报 ↗</button></td></tr>${inlineCoverPreview(v)}`;
 }
 function renderVideos() {
   const active = document.activeElement;
@@ -174,7 +174,7 @@ function renderJobs() {
     $('cancel-job').disabled = job.status === 'cancelling';
     $('cancel-job').textContent = job.status === 'cancelling' ? '等待当前请求结束' : '取消任务';
   }
-  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${jobTitle(j.action)}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p><div class="form-actions">${jobActive(j) ? `<button class="secondary small" data-cancel-job="${j.id}" ${j.status === 'cancelling' ? 'disabled' : ''}>取消此任务</button>` : ''}${j.action !== 'covers' && !jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-job="${j.id}">重试失败 / 未完成项</button>` : ''}${j.action === 'covers' ? `<button class="secondary small" data-cover-detail="${j.id}">查看封面明细</button>${!jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-covers="${j.id}">重试未完成封面</button>` : ''}` : ''}</div></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
+  $('jobs-list').innerHTML = state.jobs.length ? state.jobs.map(j => `<article class="job-card"><header><strong>${jobTitle(j.action)}</strong><span class="badge ${j.status === 'completed' ? 'saved' : j.failed ? 'error' : ''}">${jobNames[j.status] || j.status}</span></header><p>${j.done} / ${j.total} 项已处理 · 成功 ${j.done - j.failed - j.skipped} · 跳过 ${j.skipped} · 失败 ${j.failed}</p><p class="hint">${new Date(j.created * 1000).toLocaleString('zh-CN')}${j.message ? ' · ' + escapeHtml(j.message) : ''}</p><div class="form-actions">${jobActive(j) ? `<button class="secondary small" data-cancel-job="${j.id}" ${j.status === 'cancelling' ? 'disabled' : ''}>取消此任务</button>` : ''}${j.action !== 'covers' && !jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-job="${j.id}">重试失败 / 未完成项</button>` : ''}${j.action === 'covers' ? `<button class="secondary small" data-cover-detail="${j.id}">查看海报明细</button>${!jobActive(j) && (j.failed || ['cancelled','interrupted'].includes(j.status)) ? `<button class="secondary small" data-retry-covers="${j.id}">重试未完成海报</button>` : ''}` : ''}</div></article>`).join('') : '<div class="jobs-empty">还没有批量任务。在视频库选择视频后即可开始。</div>';
 }
 async function refresh() {
   if (state.loading) return;
@@ -230,9 +230,9 @@ async function openScan() {
 function batch(action) {
   state.batch = action;
   const count = state.selected.size, generate = action === 'generate', covers = action === 'covers';
-  $('batch-title').textContent = covers ? '自动获取并保存封面' : generate ? '批量生成视频资料' : '将资料保存为 NFO';
-  $('batch-description').textContent = covers ? `已选择 ${count} 个视频，同系列公共封面只处理一次。任务在后台运行，全局最多并发 ${state.settings.concurrency || 1} 项。` : `已选择 ${count} 个视频。${generate ? '文字结果先保存为草稿；封面作为独立后台任务获取。' : '将当前草稿写入视频目录。'}`;
-  $('batch-notice').textContent = covers ? '按内嵌封面、AI 联网匹配、视频截图的顺序获取，自动选择并保存；已有封面保留。可能产生模型与搜索费用。' : generate ? '文件名、目录、内嵌标签、字幕和简介片段将发送到 AI。自动封面会调用联网搜索并直接写入图片文件，已有封面保留。文字草稿仍需确认保存。' : '已有 NFO 默认保留。封面仍在获取时，NFO 可能尚不包含图片引用，可等待封面完成后再保存。';
+  $('batch-title').textContent = covers ? '自动获取并保存海报' : generate ? '批量生成视频资料' : '将资料保存为 NFO';
+  $('batch-description').textContent = covers ? `已选择 ${count} 个视频，同剧集公共海报只处理一次。任务在后台运行，全局最多并发 ${state.settings.concurrency || 1} 项。` : `已选择 ${count} 个视频。${generate ? '文字结果先保存为草稿；海报作为独立后台任务获取。' : '将当前草稿写入视频目录。'}`;
+  $('batch-notice').textContent = covers ? '按内嵌海报、AI 联网匹配、视频截图的顺序获取，自动选择并保存；已有海报保留。可能产生模型与搜索费用。' : generate ? '文件名、目录、内嵌标签、字幕和简介片段将发送到 AI。自动海报会调用联网搜索并直接写入图片文件，已有海报保留。文字草稿仍需确认保存。' : '已有 NFO 默认保留。海报仍在获取时，NFO 可能尚不包含图片引用，可等待海报完成后再保存。';
   $('overwrite').parentElement.hidden = covers;
   $('overwrite').checked = false;
   $('overwrite-label').textContent = generate ? '重新生成已有草稿（将替换手动修改的内容）' : '覆盖已有 NFO（每次覆盖前先保留 .bak 备份）';
@@ -363,7 +363,7 @@ $('scan-form').onsubmit = run(async event => {
     const data = await api('/api/scan', {path: $('folder-path').value.trim(), kind, group_by_directory: kind === 'episode' && $('series-grouping').value === 'directory', recursive: $('recursive').checked});
     $('scan-dialog').close(); state.selected = new Set(data.ids); state.kind = kind; state.directoryPath = '.'; state.listPage = 1; $('search').value = ''; $('status-filter').value = 'all';
     document.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('selected', b.dataset.kind === kind));
-    await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属系列。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);
+    await refresh(); toast(`扫描完成，找到 ${data.count} 个视频。${data.reclassified ? `已调整 ${data.reclassified} 个视频的分类或所属剧集。` : ''}${data.warnings.join('；')}`, !!data.warnings.length);
   } finally { $('scan-submit').disabled = false; $('scan-feedback').textContent = ''; }
 });
 $('open-cleanup').onclick = run(async () => {
@@ -418,7 +418,7 @@ $('write').onclick = () => batch('save');
 $('auto-covers').onclick = () => batch('covers');
 $('batch-form').onsubmit = run(async event => {
   event.preventDefault(); $('batch-submit').disabled = true;
-  try { const result = await api('/api/jobs', {action: state.batch, ids: [...state.selected], overwrite: $('overwrite').checked, auto_covers: state.batch === 'generate' && $('batch-auto-covers').checked}); $('batch-dialog').close(); await refresh(); toast(result.id ? '任务已启动，可在批量任务中查看各自进度' : '这些封面已在队列中，无需重复启动'); }
+  try { const result = await api('/api/jobs', {action: state.batch, ids: [...state.selected], overwrite: $('overwrite').checked, auto_covers: state.batch === 'generate' && $('batch-auto-covers').checked}); $('batch-dialog').close(); await refresh(); toast(result.id ? '任务已启动，可在批量任务中查看各自进度' : '这些海报已在队列中，无需重复启动'); }
   finally { $('batch-submit').disabled = false; }
 });
 $('cancel-job').onclick = run(async () => { const job = activeJob(); if (job) { await api('/api/cancel', {id: job.id}); await refresh(); toast('将在当前文件或 AI 请求处理结束后停止'); } });
@@ -497,12 +497,12 @@ initialize().catch(err => toast(err.message, true));
 async function loadCoverTasks() {
   const items = await api('/api/cover-tasks?id=' + encodeURIComponent(coverDetailID));
   const labels = {queued:'排队中', running:'获取中', saved:'已保存', skipped:'已保留', failed:'失败', cancelled:'已取消', interrupted:'已中断'};
-  $('cover-task-list').innerHTML = items.map(t => '<li><strong>' + escapeHtml(t.scope === 'series' ? '系列封面' : '视频封面') + ' · ' + escapeHtml(labels[t.status] || t.status) + '</strong><br>' + escapeHtml(t.path) + (t.error ? '<br>' + escapeHtml(t.error) : '') + '</li>').join('');
+  $('cover-task-list').innerHTML = items.map(t => '<li><strong>' + escapeHtml(t.scope === 'series' ? '剧集海报' : '视频海报') + ' · ' + escapeHtml(labels[t.status] || t.status) + '</strong><br>' + escapeHtml(t.path) + (t.error ? '<br>' + escapeHtml(t.error) : '') + '</li>').join('');
 }
 $('jobs-list').onclick = run(async event => {
   const cancel = event.target.closest('[data-cancel-job]'), retry = event.target.closest('[data-retry-covers]'), detail = event.target.closest('[data-cover-detail]'), retryJob = event.target.closest('[data-retry-job]');
   if (cancel) { await api('/api/cancel', {id: cancel.dataset.cancelJob}); await refresh(); }
-  if (retry) { retry.disabled = true; try { const result = await api('/api/cover-jobs/retry', {id: retry.dataset.retryCovers}); await refresh(); toast(result.id ? '未完成封面已加入重试队列' : '没有需要重试的封面，或已在队列中'); } finally { retry.disabled = false; } }
+  if (retry) { retry.disabled = true; try { const result = await api('/api/cover-jobs/retry', {id: retry.dataset.retryCovers}); await refresh(); toast(result.id ? '未完成海报已加入重试队列' : '没有需要重试的海报，或已在队列中'); } finally { retry.disabled = false; } }
   if (retryJob) { retryJob.disabled = true; try { const result = await api('/api/jobs/retry', {id: retryJob.dataset.retryJob}); await refresh(); toast(result.id ? '失败或未完成项已加入重试队列' : '没有可重试项：可能已重试、记录已删除，或旧任务没有逐项记录'); } finally { retryJob.disabled = false; } }
   if (detail) { coverDetailID = detail.dataset.coverDetail; await loadCoverTasks(); $('cover-tasks-dialog').showModal(); }
 });

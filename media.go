@@ -107,7 +107,7 @@ func (s *Store) saveNFO(body NFOEditRequest) (map[string]any, error) {
 		}
 	}
 	if !allowed {
-		return nil, userError("只能编辑当前视频或所属系列的 NFO 文件")
+		return nil, userError("只能编辑当前视频或所属剧集的 NFO 文件")
 	}
 	expectedRoot := "movie"
 	if v.Kind == "episode" {
@@ -214,7 +214,7 @@ func parseNumber(s string) *int { v, _ := strconv.Atoi(s); return &v }
 func (s *Store) scan(body ScanRequest) (ScanResult, error) {
 	result := ScanResult{IDs: []string{}, Warnings: []string{}}
 	if body.Kind != "movie" && body.Kind != "episode" {
-		return result, userError("请选择独立视频或系列教程")
+		return result, userError("请选择独立视频或剧集教程")
 	}
 	start, err := s.safe(body.Path, true)
 	if err != nil {
@@ -505,10 +505,10 @@ func (s *Store) previewVideo(v Video) ([]NFOFile, error) {
 			return nil, err
 		}
 		if count > 0 {
-			return nil, userError("同系列存在重复季数和集数，请先调整分集信息")
+			return nil, userError("同剧集存在重复季数和集数，请先调整分集信息")
 		}
 		if v.ShowPath == nil || v.Show == nil {
-			return nil, userError("系列信息缺失，请检查草稿")
+			return nil, userError("剧集信息缺失，请检查草稿")
 		}
 		text, err := nfoXML("tvshow", v.Show, identifier("show:"+*v.ShowPath), nil, nil, "", s.coverThumbnail(v, "series"), s.coverThumbnail(v, "series-fanart"))
 		if err != nil {
@@ -536,7 +536,7 @@ func (s *Store) checkVideoStem(rel string) error {
 	for _, entry := range entries {
 		name := entry.Name()
 		if name != filepath.Base(p) && !entry.IsDir() && strings.TrimSuffix(name, filepath.Ext(name)) == stem && videoExtensions[strings.ToLower(filepath.Ext(name))] {
-			return userError("同目录有同名不同扩展名的视频，会共用 NFO 或封面；请先区分文件名")
+			return userError("同目录有同名不同扩展名的视频，会共用 NFO 或海报；请先区分文件名")
 		}
 	}
 	return nil

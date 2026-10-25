@@ -82,13 +82,27 @@ function renderDirectoryBrowser() {
     const expanded = state.expandedSeries.has(node.path), active = node.path === state.directoryPath;
     return `<li><div class="directory-nav-row${active ? ' active' : ''}">${node.children.size ? `<button type="button" class="tree-disclosure" data-series-toggle="${escapeHtml(node.path)}" aria-expanded="${expanded}" aria-label="${expanded ? '收起' : '展开'}子目录：${escapeHtml(node.path)}">${expanded ? '▾' : '▸'}</button>` : '<span class="tree-spacer"></span>'}<button type="button" class="directory-link" data-directory="${escapeHtml(node.path)}" ${active ? 'aria-current="location"' : ''} title="${escapeHtml(node.path)}"><span>${escapeHtml(node.name)}</span><small>${node.members.length}</small></button></div>${expanded && node.children.size ? `<ul>${children(node).map(treeRow).join('')}</ul>` : ''}</li>`;
   };
-  $('directory-tree').innerHTML = `<button type="button" class="directory-root${state.directoryPath === '.' ? ' active' : ''}" data-directory="." ${state.directoryPath === '.' ? 'aria-current="location"' : ''}>全部系列 <small>${root.members.length}</small></button><ul>${children(root).map(treeRow).join('')}</ul>`;
+  $('directory-tree').innerHTML = `<button type="button" class="directory-root${state.directoryPath === '.' ? ' active' : ''}" data-directory="." ${state.directoryPath === '.' ? 'aria-current="location"' : ''}>全部剧集 <small>${root.members.length}</small></button><ul>${children(root).map(treeRow).join('')}</ul>`;
   $('directory-tree').scrollTop = scroll;
   const parts = state.directoryPath === '.' ? [] : state.directoryPath.split('/');
-  const crumbs = [{path:'.', name:'全部系列'}, ...parts.map((name, i) => ({name, path:parts.slice(0,i+1).join('/')}))];
+  const crumbs = [{path:'.', name:'全部剧集'}, ...parts.map((name, i) => ({name, path:parts.slice(0,i+1).join('/')}))];
   const search = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value, filtering = !!search || filter !== 'all';
   const posterVideo = directoryPosterVideo(current), poster = posterVideo?.covers.find(c => c.scope === 'series'), parentPath = parts.length > 1 ? parts.slice(0,-1).join('/') : '.';
-  $('directory-header').innerHTML = `<nav class="directory-breadcrumbs" aria-label="当前位置">${crumbs.map((c,i) => `${i ? '<span aria-hidden="true">/</span>' : ''}${i === crumbs.length-1 ? `<span aria-current="location">${escapeHtml(c.name)}</span>` : `<button type="button" data-directory="${escapeHtml(c.path)}">${escapeHtml(c.name)}</button>`}`).join('')}</nav><div class="directory-detail">${poster ? `<button type="button" class="directory-poster" data-directory-cover="${escapeHtml(current.path)}" aria-label="查看当前目录封面"><img data-list-cover src="${escapeHtml(poster.thumbnail_url)}" alt="系列封面"><span class="cover-load-error" hidden>图片不可用</span></button>` : '<span class="directory-symbol" aria-hidden="true">▱</span>'}<div class="directory-description"><h2 id="directory-title" tabindex="-1">${escapeHtml(current.path === '.' ? '全部系列' : current.name)}</h2><p>${current.children.size} 个子目录 · 本层 ${current.direct.length} 集 · 共 ${current.members.length} 集</p></div>${current.path !== '.' ? `<button type="button" class="secondary small" data-directory="${escapeHtml(parentPath)}">↑ 上一级</button>` : ''}</div><div class="directory-options"><label class="checkbox-label"><input id="include-descendants" type="checkbox" ${state.includeDescendants || filtering ? 'checked' : ''} ${filtering ? 'disabled' : ''}>${filtering ? '筛选范围：当前目录及子目录' : '同时显示子目录的视频'}</label><div class="directory-options-actions">${posterVideo ? `<button type="button" class="secondary small" data-directory-cover-action="${escapeHtml(posterVideo.id)}">识别系列封面</button>` : ''}<button type="button" class="text-button" data-select-directory="${escapeHtml(current.path)}" ${!current.members.length ? 'disabled' : ''}>选择整个目录（${current.members.length} 集）</button></div></div>`;
+  const posterButton = poster
+    ? `<button type="button" class="directory-poster" data-directory-cover="${escapeHtml(current.path)}" aria-label="查看当前剧集海报和候选"><img data-list-cover src="${escapeHtml(poster.thumbnail_url)}" alt="剧集海报"><span class="cover-load-error" hidden>图片不可用</span></button>`
+    : posterVideo
+      ? `<button type="button" class="directory-poster directory-poster-missing" data-directory-cover="${escapeHtml(current.path)}" aria-label="加载当前剧集海报候选"><span class="no-cover">暂无剧集海报</span></button>`
+      : '<span class="directory-symbol" aria-hidden="true">▱</span>';
+  const breadcrumbs = crumbs.map((c, i) => {
+    const separator = i ? '<span aria-hidden="true">/</span>' : '';
+    const item = i === crumbs.length - 1
+      ? `<span aria-current="location">${escapeHtml(c.name)}</span>`
+      : `<button type="button" data-directory="${escapeHtml(c.path)}">${escapeHtml(c.name)}</button>`;
+    return separator + item;
+  }).join('');
+  const parentButton = current.path !== '.' ? `<button type="button" class="secondary small" data-directory="${escapeHtml(parentPath)}">↑ 上一级</button>` : '';
+  const coverAction = posterVideo ? `<button type="button" class="secondary small" data-directory-cover-action="${escapeHtml(posterVideo.id)}">识别剧集海报</button>` : '';
+  $('directory-header').innerHTML = `<nav class="directory-breadcrumbs" aria-label="当前位置">${breadcrumbs}</nav><div class="directory-detail">${posterButton}<div class="directory-description"><h2 id="directory-title" tabindex="-1">${escapeHtml(current.path === '.' ? '全部剧集' : current.name)}</h2><p>${current.children.size} 个子目录 · 本层 ${current.direct.length} 集 · 共 ${current.members.length} 集</p></div>${parentButton}</div><div class="directory-options"><label class="checkbox-label"><input id="include-descendants" type="checkbox" ${state.includeDescendants || filtering ? 'checked' : ''} ${filtering ? 'disabled' : ''}>${filtering ? '筛选范围：当前目录及子目录' : '同时显示子目录的视频'}</label><div class="directory-options-actions">${coverAction}<button type="button" class="text-button" data-select-directory="${escapeHtml(current.path)}" ${!current.members.length ? 'disabled' : ''}>选择整个目录（${current.members.length} 集）</button></div></div>`;
   const childNodes = children(current).filter(node => !filtering || node.members.some(v => matchesVideo(v,search,filter)));
   $('directory-cards').hidden = !childNodes.length;
   $('directory-cards').innerHTML = childNodes.map(node => {
@@ -98,11 +112,12 @@ function renderDirectoryBrowser() {
     const drafts = node.members.filter(v => v.status === 'draft').length;
     return `<article class="directory-card${selected ? ' selected' : ''}"><input type="checkbox" data-series-select="${escapeHtml(node.path)}" aria-label="选择目录及子目录：${escapeHtml(node.path)}（${node.members.length} 集）" ${selected === node.members.length ? 'checked' : ''}><button type="button" class="directory-card-open" data-directory="${escapeHtml(node.path)}" aria-label="打开目录：${escapeHtml(node.path)}"><span class="folder-symbol" aria-hidden="true">▱</span><strong>${escapeHtml(node.name)}</strong><span>${node.members.length} 集 · ${node.children.size} 个子目录</span><small>${failed ? `${failed} 集失败` : saved ? `${saved} / ${node.members.length} 集已保存` : drafts ? `${drafts} 集待确认` : '等待整理'} <span aria-hidden="true">→</span></small></button></article>`;
   }).join('');
-  if (poster && state.directoryCover === current.path) {
+  if (posterVideo && state.directoryCover === current.path) {
     $('directory-preview').hidden = false;
     const cached = state.coverCandidates[posterVideo.id + ':series'];
     const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, posterVideo.id, 'series') : '';
-    $('directory-preview').innerHTML = `<section class="list-cover-preview" aria-label="目录封面大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${posterVideo.id}-series">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(poster.url)}" alt="${escapeHtml(current.name)}的系列封面大图"><p class="cover-load-error" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section>`;
+    const stage = poster ? `<div class="list-cover-stage"><img data-list-cover src="${escapeHtml(poster.url)}" alt="${escapeHtml(current.name)}的剧集海报大图"><p class="cover-load-error" hidden>海报无法加载，请检查文件是否仍可访问。</p></div>` : '<div class="list-cover-stage"><p class="no-cover">暂无剧集海报</p></div>';
+    $('directory-preview').innerHTML = `<section class="list-cover-preview" aria-label="目录海报大图"><section class="inline-cover-candidates" aria-label="其他候选海报" id="cover-candidates-${posterVideo.id}-series">${candidates}</section>${stage}</section>`;
     loadInlineCoverCandidates(posterVideo.id, 'series');
   }
 }

@@ -50,7 +50,7 @@ func (l *workLimiter) acquire(ctx, service context.Context, wait bool) (func(), 
 		changed := l.changed
 		l.mu.Unlock()
 		if !wait {
-			return nil, userError("封面操作已达到配置的并发上限，请稍后重试")
+			return nil, userError("海报操作已达到配置的并发上限，请稍后重试")
 		}
 		select {
 		case <-ctx.Done():

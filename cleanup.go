@@ -96,7 +96,7 @@ func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (C
 	}
 	// Prevent an in-flight cover lookup from recreating cache entries after deletion.
 	if !s.coverMu.TryLock() {
-		return result, userError("正在查找封面或截图，请完成后再清除记录")
+		return result, userError("正在查找海报或截图，请完成后再清除记录")
 	}
 	defer s.coverMu.Unlock()
 	s.mu.Lock()

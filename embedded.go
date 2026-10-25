@@ -172,9 +172,9 @@ func (s *Store) embeddedCoversWork(ctx context.Context, body CoverRequest) (Cove
 		}
 		reason := "直接提取自当前视频文件，未使用 AI 或联网搜索"
 		if body.Scope == "series" {
-			reason += "；这张图片属于当前单集，请确认适合作为系列封面"
+			reason += "；这张图片属于当前单集，请确认适合作为剧集海报"
 		}
-		c, cacheErr := s.cacheCover(target.Owner, CoverCandidate{Title: v.Filename + " · 内嵌封面", Kind: "embedded", Match: "embedded", Reason: reason}, raw)
+		c, cacheErr := s.cacheCover(target.Owner, CoverCandidate{Title: v.Filename + " · 内嵌海报", Kind: "embedded", Match: "embedded", Reason: reason}, raw)
 		if cacheErr != nil {
 			result.Warnings = append(result.Warnings, publicError(cacheErr))
 			continue
@@ -182,7 +182,7 @@ func (s *Store) embeddedCoversWork(ctx context.Context, body CoverRequest) (Cove
 		result.Candidates = append(result.Candidates, c)
 	}
 	if len(result.Candidates) == 0 {
-		result.Warnings = append(result.Warnings, "未找到可提取的内嵌封面，可继续联网查找或从视频截图")
+		result.Warnings = append(result.Warnings, "未找到可提取的内嵌海报，可继续联网查找或从视频截图")
 	}
 	return result, nil
 }
