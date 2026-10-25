@@ -11,10 +11,8 @@ import (
 	"image/draw"
 	"image/jpeg"
 	_ "image/png"
-	"io"
 	"math"
 	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -120,7 +118,8 @@ func (s *Store) coverInfo(id, scope string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"path": target.Path, "exists": s.videoAvailable(target.Path), "current": current, "candidates": candidates, "preview_url": "/api/cover-image?id=" + v.ID + "&scope=" + scope}, nil
+	_, _, assetErr := s.loadCoverAsset(target)
+	return map[string]any{"path": target.Path, "exists": assetErr == nil, "current": current, "candidates": candidates, "preview_url": "/api/cover-image?id=" + v.ID + "&scope=" + scope}, nil
 }
 
 func (s *Store) coverCandidates(owner string) ([]CoverCandidate, error) {
@@ -487,6 +486,9 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 		if _, fanartErr = s.writeFile(fanart.Path, raw, body.Overwrite); fanartErr != nil {
 			return nil, fanartErr
 		}
+		if _, err = s.db.Exec("INSERT INTO cover_assets(owner,target,image,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET target=excluded.target,image=excluded.image,updated=excluded.updated", target.Owner, target.Path, raw, now()); err != nil {
+			return nil, err
+		}
 		_, err = s.db.Exec("INSERT INTO cover_selections(owner,target,metadata,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET target=excluded.target,metadata=excluded.metadata,updated=excluded.updated", target.Owner, target.Path, metadata, now())
 		if err != nil {
 			return nil, err
@@ -519,16 +521,7 @@ func (s *Store) coverImageSized(id, scope, candidate string, thumbnail bool) ([]
 	if err != nil {
 		return nil, err
 	}
-	path, err := s.safe(target.Path, true)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	raw, err := io.ReadAll(io.LimitReader(f, maxCoverBytes+1))
+	raw, _, err := s.loadCoverAsset(target)
 	if err != nil {
 		return nil, err
 	}

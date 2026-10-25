@@ -249,6 +249,10 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 	if fanart, err := os.ReadFile(fanartPath); err != nil || !bytes.Equal(original, fanart) {
 		t.Fatalf("series fanart was not written: %v", err)
 	}
+	var stored []byte
+	if err := s.db.QueryRow("SELECT image FROM cover_assets WHERE owner=?", "show:course").Scan(&stored); err != nil || !bytes.Equal(original, stored) {
+		t.Fatalf("selected cover was not stored in database: %v", err)
+	}
 	w = request(app, "POST", "/api/covers/save", encode(body), nil, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"saved":false`) {
 		t.Fatal(w.Body.String())

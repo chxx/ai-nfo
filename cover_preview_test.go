@@ -91,8 +91,8 @@ func TestListCoverPreviewsAndThumbnailSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, _ := s.getVideo(identifier("course/S01E01.mp4"))
-	if updated := s.coverPreviews(v); updated[0].URL == first.URL {
-		t.Fatal("cover version unchanged")
+	if updated := s.coverPreviews(v); updated[0].URL != first.URL {
+		t.Fatal("database cover version changed with sidecar mtime")
 	}
 	protected := newWebApp(s, "password123")
 	if w := request(protected, "GET", first.ThumbnailURL, "", nil, ""); w.Code != 401 {
@@ -122,6 +122,9 @@ func TestCoverPreviewMissingSourceAndUnsafeSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(s.root, "video-poster.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("DELETE FROM cover_assets WHERE owner=?", "video:video.mp4"); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.coverPreviews(v)) != 0 {

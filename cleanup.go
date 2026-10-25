@@ -118,7 +118,7 @@ func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (C
 		if err = tx.QueryRow("SELECT COUNT(*) FROM videos").Scan(&result.Removed); err != nil {
 			return CleanupResult{}, err
 		}
-		for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections"} {
+		for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections", "cover_assets"} {
 			if _, err = tx.Exec("DELETE FROM " + table); err != nil {
 				return CleanupResult{}, err
 			}
@@ -152,7 +152,7 @@ func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (C
 		if _, err = tx.Exec("DELETE FROM videos WHERE id=?", id); err != nil {
 			return CleanupResult{}, err
 		}
-		for _, table := range []string{"cover_candidates", "cover_selections"} {
+		for _, table := range []string{"cover_candidates", "cover_selections", "cover_assets"} {
 			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner=?", "video:"+path); err != nil {
 				return CleanupResult{}, err
 			}
@@ -163,7 +163,7 @@ func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (C
 		}
 	}
 	for path := range shows {
-		for _, table := range []string{"cover_candidates", "cover_selections"} {
+		for _, table := range []string{"cover_candidates", "cover_selections", "cover_assets"} {
 			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner=? AND NOT EXISTS (SELECT 1 FROM videos WHERE show_path=?)", "show:"+path, path); err != nil {
 				return CleanupResult{}, err
 			}

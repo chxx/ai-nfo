@@ -26,6 +26,9 @@ func TestClearSelectedRecordsAndSharedSeries(t *testing.T) {
 		if _, err := s.db.Exec("INSERT INTO cover_selections VALUES(?,?,?,?)", owner, "poster.jpg", "{}", now()); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := s.db.Exec("INSERT INTO cover_assets VALUES(?,?,?,?)", owner, "poster.jpg", []byte("image"), now()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	app := newWebApp(s, "")
 	body := ClearRecordsRequest{IDs: []string{identifier("course/01.mp4"), identifier("course/01.mp4"), "unknown"}}
@@ -41,7 +44,7 @@ func TestClearSelectedRecordsAndSharedSeries(t *testing.T) {
 	if err != nil || v.Metadata == nil || v.Show == nil {
 		t.Fatal("unselected draft or series lost", err)
 	}
-	for _, table := range []string{"cover_candidates", "cover_selections"} {
+	for _, table := range []string{"cover_candidates", "cover_selections", "cover_assets"} {
 		var count int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil || count != 2 {
 			t.Fatal("shared cover lost", table, count, err)
@@ -50,7 +53,7 @@ func TestClearSelectedRecordsAndSharedSeries(t *testing.T) {
 	if _, err := s.clearRecords(ClearRecordsRequest{IDs: []string{identifier("course/02.mp4")}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections"} {
+	for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections", "cover_assets"} {
 		var count int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil || count != 0 {
 			t.Fatal("orphan remains", table, count, err)
@@ -104,7 +107,7 @@ func TestClearAllRecordsOfflineAndRollback(t *testing.T) {
 	if err != nil || result.Removed != 1 {
 		t.Fatal(result, err)
 	}
-	for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections"} {
+	for _, table := range []string{"videos", "shows", "cover_candidates", "cover_selections", "cover_assets"} {
 		var count int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil || count != 0 {
 			t.Fatal(table, count, err)
