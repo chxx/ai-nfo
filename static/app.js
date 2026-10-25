@@ -71,7 +71,10 @@ function renderSelection() {
 function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
 function listCoverThumbnails(v) {
   const covers = (v.covers || []).filter(c => c.scope === 'video');
-  if (!covers.length) return `<button type="button" class="no-cover no-cover-button" data-cover="${escapeHtml(v.id)}" data-cover-missing="true" aria-label="为 ${escapeHtml(v.filename)} 查找封面">暂无图片</button>`;
+  if (!covers.length) {
+    const open = state.coverPreview?.id === v.id && state.coverPreview.scope === 'video' && state.coverPreview.missing;
+    return `<button type="button" class="no-cover no-cover-button" data-cover-preview="${escapeHtml(v.id)}" data-cover-scope="video" data-cover-missing="true" aria-expanded="${open}" aria-controls="cover-preview-${escapeHtml(v.id)}" aria-label="${open ? '收起' : '加载'} ${escapeHtml(v.filename)} 的 AI 候选封面">暂无图片</button>`;
+  }
   return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
     const label = coverLabel(v, c.scope);
@@ -81,14 +84,16 @@ function listCoverThumbnails(v) {
 function inlineCoverPreview(v) {
   if (state.coverPreview?.id !== v.id || state.coverPreview.scope !== 'video') return '';
   const c = v.covers?.find(c => c.scope === state.coverPreview.scope);
-  if (!c) return '';
-  const label = coverLabel(v, c.scope);
-  const cached = state.coverCandidates[v.id + ':' + c.scope];
-  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, c.scope) : '';
-  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}大图"><section class="inline-cover-candidates" aria-label="其他候选封面" id="cover-candidates-${v.id}-${c.scope}">${candidates}</section><div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div></section></td></tr>`;
+  if (!c && !state.coverPreview.missing) return '';
+  const scope = state.coverPreview.scope;
+  const label = coverLabel(v, scope);
+  const cached = state.coverCandidates[v.id + ':' + scope];
+  const candidates = Array.isArray(cached) ? inlineCoverCandidatesMarkup(cached, v.id, scope) : '<p class="no-cover-candidates">正在加载 AI 候选封面…</p>';
+  const stage = c ? `<div class="list-cover-stage"><img data-list-cover src="${escapeHtml(c.url)}" alt="${escapeHtml(v.filename)}的${label}大图" decoding="async"><p class="cover-load-error" role="status" hidden>封面无法加载，请检查文件是否仍可访问。</p></div>` : '';
+  return `<tr class="cover-preview-row"><td colspan="6"><section class="list-cover-preview" id="cover-preview-${v.id}" aria-label="${label}候选封面"><section class="inline-cover-candidates" aria-label="AI 候选封面" id="cover-candidates-${v.id}-${scope}">${candidates}</section>${stage}</section></td></tr>`;
 }
 function inlineCoverCandidatesMarkup(candidates, id, scope) {
-  if (!candidates.length) return '';
+  if (!candidates.length) return '<p class="no-cover-candidates">没有已保存的 AI 候选封面，请点击“查找封面”重新识别。</p>';
   return `<div class="inline-cover-choice-grid">${candidates.map(c => `<button type="button" class="inline-cover-choice" data-cover-candidate="${escapeHtml(c.id)}" data-cover-video="${id}" data-cover-scope="${scope}" title="使用此封面"><img src="${escapeHtml(c.preview_url)}" alt="${escapeHtml(c.title || '候选封面')}" loading="lazy" decoding="async"></button>`).join('')}</div>`;
 }
 function renderInlineCoverCandidates(id, scope, candidates) {
@@ -103,7 +108,7 @@ async function loadInlineCoverCandidates(id, scope) {
   if (Array.isArray(state.coverCandidates[key])) { renderInlineCoverCandidates(id, scope, state.coverCandidates[key]); return; }
   try {
     const data = await api('/api/covers?id=' + encodeURIComponent(id) + '&scope=' + encodeURIComponent(scope));
-    state.coverCandidates[key] = data.candidates || [];
+    state.coverCandidates[key] = (data.candidates || []).filter(candidate => candidate.kind === 'web' && ['likely', 'uncertain', 'unlikely'].includes(candidate.match));
     renderInlineCoverCandidates(id, scope, state.coverCandidates[key]);
   } catch { container.replaceChildren(); }
 }
@@ -135,7 +140,7 @@ function renderVideos() {
   const videos = filtered(), paged = libraryPage(videos, state.listPage, state.pageSize);
   state.listPage = paged.page;
   state.visibleIDs = new Set(paged.videos.map(v => v.id));
-  if (state.coverPreview && !paged.videos.some(v => v.id === state.coverPreview.id && v.covers?.some(c => c.scope === state.coverPreview.scope))) state.coverPreview = null;
+  if (state.coverPreview && !paged.videos.some(v => v.id === state.coverPreview.id && (state.coverPreview.missing || v.covers?.some(c => c.scope === state.coverPreview.scope)))) state.coverPreview = null;
   const filtering = !!$('search').value.trim() || $('status-filter').value !== 'all';
   $('result-count').textContent = state.kind === 'episode' ? `${filtering ? '匹配' : state.includeDescendants ? '含子目录' : '本层'} ${videos.length} 集` : `${videos.length} 个视频`;
   $('reset-filters').hidden = !filtering;
@@ -327,8 +332,9 @@ $('video-list').onclick = run(async event => {
   const preview = event.target.closest('[data-cover-preview]'), close = event.target.closest('[data-close-preview]');
   if (preview || close) {
     const button = preview || close, id = button.dataset.coverPreview || button.dataset.closePreview, scope = button.dataset.coverScope;
+    const missing = button.dataset.coverMissing === 'true';
     const wasOpen = state.coverPreview?.id === id && state.coverPreview.scope === scope;
-    state.coverPreview = close || wasOpen ? null : {id, scope};
+    state.coverPreview = close || wasOpen ? null : {id, scope, missing};
     renderVideos();
     if (state.coverPreview) {
       $('cover-preview-' + id)?.scrollIntoView({block:'nearest', behavior:'smooth'});
