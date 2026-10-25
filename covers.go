@@ -90,7 +90,22 @@ func coverTargetPath(v Video, scope string) (coverTarget, error) {
 }
 func (s *Store) coverThumbnail(v Video, scope string) string {
 	target, err := s.targetCover(v, scope)
-	if err != nil || !s.videoAvailable(target.Path) {
+	if err != nil {
+		return ""
+	}
+	// NFO generation should follow the database artwork copy as well as the
+	// sidecar file. This keeps local image references when a NAS sidecar was
+	// removed but the selected artwork is still stored in cover_assets.
+	assetTarget := target
+	if scope == "video-fanart" {
+		assetTarget, err = s.targetCover(v, "video")
+	} else if scope == "series-fanart" {
+		assetTarget, err = s.targetCover(v, "series")
+	}
+	if err != nil {
+		return ""
+	}
+	if _, _, err = s.loadCoverAsset(assetTarget); err != nil && !s.videoAvailable(target.Path) {
 		return ""
 	}
 	return filepath.Base(target.Path)

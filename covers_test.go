@@ -274,6 +274,16 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, "<fanart>") || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) || !strings.Contains(files[0].XML, "<art>") || !strings.Contains(files[0].XML, `<poster>poster.jpg</poster>`) || !strings.Contains(files[0].XML, `<fanart>fanart.jpg</fanart>`) {
 		t.Fatal(files, err)
 	}
+	if err := os.Remove(imagePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(fanartPath); err != nil {
+		t.Fatal(err)
+	}
+	files, err = s.preview(ids[0])
+	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) {
+		t.Fatal("database artwork was not used for NFO references", files, err)
+	}
 	w = request(app, "GET", "/api/cover-image?candidate="+c.ID, "", nil, "")
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {
 		t.Fatal(w.Code)
@@ -290,9 +300,6 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 	}
 	if _, err = s.coverImage("", "", c.ID); err == nil {
 		t.Fatal("expired candidate image returned")
-	}
-	if err = os.Remove(imagePath); err != nil {
-		t.Fatal(err)
 	}
 	if err = os.Symlink(filepath.Join(s.root, "course/01-first.mp4"), imagePath); err != nil {
 		t.Fatal(err)

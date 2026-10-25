@@ -109,6 +109,17 @@ func (s *Store) saveNFO(body NFOEditRequest) (map[string]any, error) {
 	if !allowed {
 		return nil, userError("只能编辑当前视频或所属系列的 NFO 文件")
 	}
+	expectedRoot := "movie"
+	if v.Kind == "episode" {
+		if v.ShowPath != nil && filepath.ToSlash(body.Path) == filepath.ToSlash(filepath.Join(*v.ShowPath, "tvshow.nfo")) {
+			expectedRoot = "tvshow"
+		} else {
+			expectedRoot = "episodedetails"
+		}
+	}
+	if root.XMLName.Local != expectedRoot {
+		return nil, userError("NFO 根节点与文件类型不匹配，应为 " + expectedRoot)
+	}
 	wrote, err := s.writeNFO(body.Path, body.XML, true)
 	if err != nil {
 		return nil, err

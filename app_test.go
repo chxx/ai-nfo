@@ -278,6 +278,9 @@ func TestNFOReadAndEdit(t *testing.T) {
 	if _, err = s.saveNFO(NFOEditRequest{ID: id, Path: "course/video.nfo", XML: "<movie>"}); err == nil {
 		t.Fatal("invalid NFO XML accepted")
 	}
+	if _, err = s.saveNFO(NFOEditRequest{ID: id, Path: "course/video.nfo", XML: "<tvshow><title>错误类型</title></tvshow>"}); err == nil {
+		t.Fatal("mismatched NFO root accepted")
+	}
 }
 
 func TestEpisodeConflicts(t *testing.T) {
