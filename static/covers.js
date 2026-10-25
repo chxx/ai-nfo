@@ -16,6 +16,10 @@ async function loadCurrentCover() {
   $('cover-target').textContent = '保存位置：' + data.path + '。保存封面后，下一次保存 NFO 会包含图片引用。';
   $('cover-current').hidden = !data.exists;
   $('cover-current').innerHTML = data.exists ? `<img src="${escapeHtml(data.preview_url)}&t=${Date.now()}" alt="当前封面"><div><strong>当前封面</strong><p>${escapeHtml(data.path)}</p>${data.current?.source_url ? `<a href="${escapeHtml(data.current.source_url)}" target="_blank" rel="noopener noreferrer">查看来源 ↗</a>` : ''}</div>` : '';
+  if (Array.isArray(data.candidates) && data.candidates.length) {
+    renderCoverCandidates(data.candidates);
+    $('cover-feedback').textContent = `已加载 ${data.candidates.length} 张候选封面，可直接选择。`;
+  }
 }
 async function openCovers(id, scope = 'video') {
   if (coverState.busy) { toast('上一项封面操作尚未结束，请稍后重试', true); return; }
@@ -37,7 +41,12 @@ async function loadEmbeddedCovers() {
   $('cover-feedback').textContent = '正在读取视频内嵌封面…';
   try {
     const data = await api('/api/covers/embedded', {id: coverState.video.id, scope: $('cover-scope').value});
-    renderCoverCandidates(data.candidates);
+    const existing = coverState.candidates || [];
+    const candidates = [...existing];
+    for (const candidate of (data.candidates || [])) {
+      if (!candidates.some(item => item.id === candidate.id)) candidates.push(candidate);
+    }
+    renderCoverCandidates(candidates);
     $('cover-feedback').textContent = `找到 ${data.candidates.length} 张内嵌封面。${data.warnings.join('；')}`;
   } catch (err) { $('cover-feedback').textContent = err.message + '；可继续联网查找或截图。'; }
 }

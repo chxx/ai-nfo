@@ -71,7 +71,7 @@ function renderSelection() {
 function coverLabel(v, scope) { return scope === 'series' ? '系列封面' : v.kind === 'episode' ? '单集封面' : '视频封面'; }
 function listCoverThumbnails(v) {
   const covers = (v.covers || []).filter(c => c.scope === 'video');
-  if (!covers.length) return '<span class="no-cover">暂无封面</span>';
+  if (!covers.length) return `<button type="button" class="no-cover no-cover-button" data-cover="${escapeHtml(v.id)}" aria-label="为 ${escapeHtml(v.filename)} 查找封面">暂无图片</button>`;
   return '<div class="list-cover-thumbnails">' + covers.map(c => {
     const open = state.coverPreview?.id === v.id && state.coverPreview.scope === c.scope;
     const label = coverLabel(v, c.scope);
