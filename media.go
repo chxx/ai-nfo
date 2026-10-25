@@ -125,6 +125,9 @@ func (s *Store) saveNFO(body NFOEditRequest) (map[string]any, error) {
 	if root.XMLName.Local != expectedRoot {
 		return nil, userError("NFO 根节点与文件类型不匹配，应为 " + expectedRoot)
 	}
+	if err = s.restoreCoverAssets(v); err != nil {
+		return nil, err
+	}
 	wrote, err := s.writeNFO(body.Path, body.XML, true)
 	if err != nil {
 		return nil, err

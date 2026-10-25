@@ -299,6 +299,15 @@ func (s *Store) processVideo(ctx context.Context, id, action string, overwrite b
 		_, err = s.db.Exec("UPDATE videos SET metadata=?,status='draft',error='',updated=? WHERE id=?", encode(m), now(), id)
 		return false, err
 	}
+	// Restore selected artwork from the database before previewing the NFO.
+	// This keeps a deleted NAS sidecar from producing an NFO that points at a
+	// missing image, while preserving any existing file selected manually.
+	s.mu.Lock()
+	err = s.restoreCoverAssets(v)
+	s.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
 	files, err := s.preview(id)
 	if err != nil {
 		return false, err

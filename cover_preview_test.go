@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,5 +134,52 @@ func TestCoverPreviewMissingSourceAndUnsafeSidecar(t *testing.T) {
 	}
 	if _, err := s.coverImageSized(id, "video", "", true); err == nil {
 		t.Fatal("read sidecar outside media root")
+	}
+}
+
+func TestSaveNFORestoresDatabaseArtwork(t *testing.T) {
+	s := testStore(t)
+	put(t, s, "show/S01E01.mp4", "video")
+	id := scan(t, s, "show", "episode")[0]
+	draft(t, s, id)
+	v, err := s.getVideo(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	videoTarget, err := coverTargetPath(v, "video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesTarget, err := coverTargetPath(v, "series")
+	if err != nil {
+		t.Fatal(err)
+	}
+	videoImage := previewPNG(t, 1280, 720)
+	seriesImage := previewPNG(t, 900, 1200)
+	for _, asset := range []struct {
+		owner, target string
+		image         []byte
+	}{
+		{videoTarget.Owner, videoTarget.Path, videoImage},
+		{seriesTarget.Owner, seriesTarget.Path, seriesImage},
+	} {
+		if _, err = s.db.Exec("INSERT INTO cover_assets(owner,target,image,updated) VALUES(?,?,?,?)", asset.owner, asset.target, asset.image, now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = s.processVideo(context.Background(), id, "save", true, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"show/poster.jpg", "show/fanart.jpg", "show/season01-poster.jpg", "show/season01-fanart.jpg",
+		"show/S01E01-thumb.jpg", "show/S01E01-fanart.jpg",
+	} {
+		if _, err = os.Stat(filepath.Join(s.root, path)); err != nil {
+			t.Fatalf("artwork was not restored: %s: %v", path, err)
+		}
+	}
+	nfo, err := os.ReadFile(filepath.Join(s.root, "show/S01E01.nfo"))
+	if err != nil || !strings.Contains(string(nfo), `<thumb aspect="thumb">S01E01-thumb.jpg</thumb>`) || !strings.Contains(string(nfo), `<thumb>S01E01-fanart.jpg</thumb>`) {
+		t.Fatalf("NFO did not reference restored episode artwork: %s (%v)", nfo, err)
 	}
 }

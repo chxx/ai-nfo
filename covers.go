@@ -53,6 +53,110 @@ type CoverResults struct {
 }
 type coverTarget struct{ Owner, Path string }
 
+// storedCoverAsset returns only the database copy. loadCoverAsset also
+// imports a sidecar from disk, which is useful for displaying an existing
+// image but is not enough when the sidecar was deleted and needs restoration.
+func (s *Store) storedCoverAsset(target coverTarget) ([]byte, error) {
+	var raw []byte
+	err := s.db.QueryRow("SELECT image FROM cover_assets WHERE owner=? AND target=?", target.Owner, target.Path).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func (s *Store) restoreCoverSidecar(target coverTarget, raw []byte) error {
+	if len(raw) == 0 || s.videoAvailable(target.Path) {
+		return nil
+	}
+	_, err := s.writeFile(target.Path, raw, false)
+	return err
+}
+
+// restoreCoverAssets materializes selected database artwork before an NFO is
+// generated. The web UI can still show a database copy after a NAS sidecar was
+// deleted, but Kodi/Zidoo can only use files beside the media. Cover selection
+// stores the primary poster in cover_assets; fanart and season aliases fall
+// back to that same image when their own database copy is absent.
+func (s *Store) restoreCoverAssets(v Video) error {
+	videoTarget, err := coverTargetPath(v, "video")
+	if err != nil {
+		return err
+	}
+	videoRaw, err := s.storedCoverAsset(videoTarget)
+	if err != nil {
+		return err
+	}
+	if len(videoRaw) > 0 {
+		if err = s.restoreCoverSidecar(videoTarget, videoRaw); err != nil {
+			return err
+		}
+		fanart, fanartErr := coverTargetPath(v, "video-fanart")
+		if fanartErr != nil {
+			return fanartErr
+		}
+		fanartRaw, readErr := s.storedCoverAsset(fanart)
+		if readErr != nil {
+			return readErr
+		}
+		if len(fanartRaw) == 0 {
+			fanartRaw = videoRaw
+		}
+		if err = s.restoreCoverSidecar(fanart, fanartRaw); err != nil {
+			return err
+		}
+	}
+
+	if v.Kind != "episode" || v.ShowPath == nil {
+		return nil
+	}
+	seriesTarget, err := coverTargetPath(v, "series")
+	if err != nil {
+		return err
+	}
+	seriesRaw, err := s.storedCoverAsset(seriesTarget)
+	if err != nil {
+		return err
+	}
+	if len(seriesRaw) == 0 {
+		return nil
+	}
+	if err = s.restoreCoverSidecar(seriesTarget, seriesRaw); err != nil {
+		return err
+	}
+	seriesFanart, err := coverTargetPath(v, "series-fanart")
+	if err != nil {
+		return err
+	}
+	seriesFanartRaw, err := s.storedCoverAsset(seriesFanart)
+	if err != nil {
+		return err
+	}
+	if len(seriesFanartRaw) == 0 {
+		seriesFanartRaw = seriesRaw
+	}
+	if err = s.restoreCoverSidecar(seriesFanart, seriesFanartRaw); err != nil {
+		return err
+	}
+	seasonPaths, err := s.seasonArtworkPaths(v)
+	if err != nil {
+		return err
+	}
+	for _, path := range seasonPaths {
+		raw := seriesRaw
+		if strings.HasSuffix(path, "-fanart.jpg") {
+			raw = seriesFanartRaw
+		}
+		if err = s.restoreCoverSidecar(coverTarget{Owner: seriesTarget.Owner, Path: path}, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) targetCover(v Video, scope string) (coverTarget, error) {
 	target, err := coverTargetPath(v, scope)
 	if err != nil {
