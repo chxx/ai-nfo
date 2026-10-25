@@ -148,31 +148,41 @@ type nfoThumb struct {
 type nfoFanart struct {
 	Thumb string `xml:"thumb"`
 }
-type nfoArt struct {
-	Poster string `xml:"poster,omitempty"`
-	Fanart string `xml:"fanart,omitempty"`
-}
-type nfoDocument struct {
+
+// kodiNFO is deliberately limited to fields represented by the application's
+// metadata model.  Kodi's local artwork convention is the sidecar file next
+// to the video (poster.jpg/fanart.jpg for a show and -thumb/-poster/-fanart
+// files for a video), so the optional thumb and fanart elements are only
+// references to those local filenames.  The non-standard <art> wrapper is
+// intentionally not emitted.
+type kodiNFO struct {
 	XMLName   xml.Name
 	Title     string     `xml:"title"`
-	Plot      string     `xml:"plot"`
-	Directors []string   `xml:"director,omitempty"`
-	ID        nfoID      `xml:"uniqueid"`
-	Genres    []string   `xml:"genre"`
-	Tags      []string   `xml:"tag"`
 	ShowTitle string     `xml:"showtitle,omitempty"`
 	Season    *int       `xml:"season,omitempty"`
 	Episode   *int       `xml:"episode,omitempty"`
+	Plot      string     `xml:"plot,omitempty"`
+	ID        nfoID      `xml:"uniqueid"`
+	Directors []string   `xml:"director,omitempty"`
+	Genres    []string   `xml:"genre,omitempty"`
+	Tags      []string   `xml:"tag,omitempty"`
 	Thumb     *nfoThumb  `xml:"thumb,omitempty"`
 	Fanart    *nfoFanart `xml:"fanart,omitempty"`
-	Art       *nfoArt    `xml:"art,omitempty"`
 }
+
+const kodiXMLHeader = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n"
 
 func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thumb, fanart string) (string, error) {
 	if m == nil {
 		return "", userError("请先生成或编辑元数据")
 	}
-	doc := nfoDocument{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, Directors: m.Directors, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
+	if kind != "movie" && kind != "tvshow" && kind != "episodedetails" {
+		return "", userError("不支持的 NFO 类型")
+	}
+	if strings.TrimSpace(m.Title) == "" {
+		return "", userError("标题不能为空")
+	}
+	doc := kodiNFO{XMLName: xml.Name{Local: kind}, Title: m.Title, Plot: m.Plot, Directors: m.Directors, ID: nfoID{"local", "true", id}, Genres: m.Genres, Tags: m.Tags}
 	if thumb != "" {
 		aspect := "poster"
 		if kind == "episodedetails" {
@@ -183,9 +193,6 @@ func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thu
 	if fanart != "" {
 		doc.Fanart = &nfoFanart{Thumb: fanart}
 	}
-	if thumb != "" || fanart != "" {
-		doc.Art = &nfoArt{Poster: thumb, Fanart: fanart}
-	}
 	if kind == "episodedetails" {
 		if season == nil || episode == nil {
 			return "", userError("请先填写季数和集数，再预览或保存剧集 NFO")
@@ -193,5 +200,8 @@ func nfoXML(kind string, m *Metadata, id string, season, episode *int, show, thu
 		doc.Season, doc.Episode, doc.ShowTitle = season, episode, show
 	}
 	b, err := xml.MarshalIndent(doc, "", "  ")
-	return xml.Header + string(b) + "\n", err
+	if err != nil {
+		return "", err
+	}
+	return kodiXMLHeader + string(b) + "\n", nil
 }

@@ -178,7 +178,7 @@ func TestCoverSearchAIAndFullDirectory(t *testing.T) {
 		t.Fatalf("episode fanart was not written: %v", err)
 	}
 	files, err := s.preview(id)
-	if err != nil || !strings.Contains(files[1].XML, `<thumb aspect="thumb">01 Alphabet A Sound Song-thumb.jpg</thumb>`) || !strings.Contains(files[1].XML, "<fanart>") || !strings.Contains(files[1].XML, `<thumb>01 Alphabet A Sound Song-fanart.jpg</thumb>`) || !strings.Contains(files[1].XML, "<art>") || !strings.Contains(files[1].XML, `<poster>01 Alphabet A Sound Song-thumb.jpg</poster>`) || !strings.Contains(files[1].XML, `<fanart>01 Alphabet A Sound Song-fanart.jpg</fanart>`) {
+	if err != nil || !strings.Contains(files[1].XML, `<thumb aspect="thumb">01 Alphabet A Sound Song-thumb.jpg</thumb>`) || !strings.Contains(files[1].XML, "<fanart>") || !strings.Contains(files[1].XML, `<thumb>01 Alphabet A Sound Song-fanart.jpg</thumb>`) || strings.Contains(files[1].XML, "<art>") {
 		t.Fatal(files, err)
 	}
 	// Series context uses the full hierarchy without treating the chosen episode as the whole series.
@@ -271,7 +271,7 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 		t.Fatal("backup changed")
 	}
 	files, err := s.preview(ids[0])
-	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, "<fanart>") || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) || !strings.Contains(files[0].XML, "<art>") || !strings.Contains(files[0].XML, `<poster>poster.jpg</poster>`) || !strings.Contains(files[0].XML, `<fanart>fanart.jpg</fanart>`) {
+	if err != nil || !strings.Contains(files[0].XML, `<thumb aspect="poster">poster.jpg</thumb>`) || !strings.Contains(files[0].XML, "<fanart>") || !strings.Contains(files[0].XML, `<thumb>fanart.jpg</thumb>`) || strings.Contains(files[0].XML, "<art>") {
 		t.Fatal(files, err)
 	}
 	if err := os.Remove(imagePath); err != nil {
