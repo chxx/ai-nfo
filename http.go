@@ -309,6 +309,13 @@ func (a *webApp) dispatch(w http.ResponseWriter, r *http.Request, raw []byte) (a
 				return nil, err
 			}
 			return s.saveCover(body)
+		case "/api/covers/design":
+			var body DesignCoverRequest
+			if err := decodeBody(raw, &body); err != nil {
+				return nil, err
+			}
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(6 * time.Minute))
+			return s.designCover(r.Context(), body)
 		case "/api/settings":
 			body := SettingsRequest{Config: Config{Provider: "compatible", JSONMode: true}}
 			if err := decodeBody(raw, &body); err != nil {

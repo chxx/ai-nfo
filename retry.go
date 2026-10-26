@@ -37,6 +37,10 @@ func transientStatus(status int) bool {
 
 // Callers hold the shared AI slot through the response body and retry backoff.
 func (s *Store) requestBytes(req *http.Request, retries int) (int, []byte, error) {
+	return s.requestBytesWithClient(req, retries, s.client, 2000000)
+}
+
+func (s *Store) requestBytesWithClient(req *http.Request, retries int, client *http.Client, limit int64) (int, []byte, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
@@ -56,20 +60,20 @@ func (s *Store) requestBytes(req *http.Request, retries int) (int, []byte, error
 			}
 			current.Body = body
 		}
-		response, err := s.client.Do(current)
+		response, err := client.Do(current)
 		status, header := 0, ""
 		var raw []byte
 		if response != nil {
 			status, header = response.StatusCode, response.Header.Get("Retry-After")
 			if err == nil {
-				raw, err = io.ReadAll(io.LimitReader(response.Body, 2000001))
+				raw, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
 			}
 			response.Body.Close()
 		}
 		if ctx.Err() != nil {
 			return status, nil, ctx.Err()
 		}
-		if len(raw) > 2000000 {
+		if int64(len(raw)) > limit {
 			return status, nil, userError("接口返回内容过大")
 		}
 		retryable := transientStatus(status) || err != nil && (status == 0 || status >= 200 && status < 300)

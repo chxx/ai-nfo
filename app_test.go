@@ -370,7 +370,12 @@ func TestAIProtocolsAndGeneration(t *testing.T) {
 				if err := json.Unmarshal([]byte(messages[1].(map[string]any)["content"].(string)), &evidence); err != nil || evidence["directory"] != "course" {
 					t.Errorf("series or episode generation lacks full directory: %+v %v", evidence, err)
 				}
-				m := map[string]any{"content": encode(Metadata{Title: "生成标题", Plot: "仅根据提供资料", Directors: []string{"导演甲", "导演乙"}})}
+				var input seriesGenerationInput
+				if err := json.Unmarshal([]byte(messages[1].(map[string]any)["content"].(string)), &input); err != nil {
+					t.Error(err)
+				}
+				response := generationFixture(input)
+				m := map[string]any{"content": encode(response)}
 				result := map[string]any{"choices": []any{map[string]any{"message": m}}}
 				if provider == "ollama" {
 					result = map[string]any{"message": m}
@@ -383,11 +388,11 @@ func TestAIProtocolsAndGeneration(t *testing.T) {
 			put(t, s, "course/S01E02.mp4", "")
 			ids := scan(t, s, "course", "episode")
 			job := waitJob(t, s, start(t, s, "generate", ids, false))
-			if job.Failed != 0 || job.Done != 2 || calls.Load() != 3 {
+			if job.Failed != 0 || job.Done != 2 || calls.Load() != 1 {
 				t.Fatalf("generation: %+v calls=%d", job, calls.Load())
 			}
 			job = waitJob(t, s, start(t, s, "generate", ids, false))
-			if job.Skipped != 2 || calls.Load() != 3 {
+			if job.Skipped != 2 || calls.Load() != 1 {
 				t.Fatal("existing drafts regenerated")
 			}
 			job = waitJob(t, s, start(t, s, "save", ids, false))

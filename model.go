@@ -126,10 +126,13 @@ type Config struct {
 	SearchProvider string `json:"search_provider"`
 	SearchURL      string `json:"search_url"`
 	SearchKey      string `json:"search_key"`
+	ImageBaseURL   string `json:"image_base_url"`
+	ImageModel     string `json:"image_model"`
+	ImageAPIKey    string `json:"image_api_key"`
 }
 
 func (c Config) public() map[string]any {
-	return map[string]any{"retry_count": c.RetryCount, "concurrency": c.Concurrency, "provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != "", "search_provider": c.SearchProvider, "search_url": c.SearchURL, "has_search_key": c.SearchKey != ""}
+	return map[string]any{"retry_count": c.RetryCount, "concurrency": c.Concurrency, "provider": c.Provider, "base_url": c.BaseURL, "model": c.Model, "json_mode": c.JSONMode, "has_key": c.APIKey != "", "search_provider": c.SearchProvider, "search_url": c.SearchURL, "has_search_key": c.SearchKey != "", "image_base_url": c.ImageBaseURL, "image_model": c.ImageModel, "has_image_key": c.ImageAPIKey != ""}
 }
 
 type NFOFile struct {

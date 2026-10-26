@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"path/filepath"
 )
 
 func (s *Store) listJobs() ([]Job, error) {
@@ -30,7 +29,7 @@ type JobRequest struct {
 }
 
 func (s *Store) startJob(body JobRequest) (map[string]string, error) {
-	if body.Action != "generate" && body.Action != "save" && body.Action != "covers" || len(body.IDs) == 0 || len(body.IDs) > 5000 {
+	if body.Action != "generate" && body.Action != "save" && !isCoverAction(body.Action) || len(body.IDs) == 0 || len(body.IDs) > 5000 {
 		return nil, userError("请选择 1–5000 个视频")
 	}
 	s.mu.Lock()
@@ -42,7 +41,7 @@ func (s *Store) startJobLocked(body JobRequest, retryOf string) (map[string]stri
 	if s.ctx.Err() != nil {
 		return nil, userError("服务正在关闭")
 	}
-	if body.Action != "covers" {
+	if !isCoverAction(body.Action) {
 		if err := s.ensureJobsIdle(true); err != nil {
 			return nil, err
 		}
@@ -63,13 +62,29 @@ func (s *Store) startJobLocked(body JobRequest, retryOf string) (map[string]stri
 	if body.Action == "generate" && (c.Model == "" || c.BaseURL == "") {
 		return nil, userError("请先在设置中填写 AI 接口地址和模型名称")
 	}
+	if body.Action == "design_covers" && !imageModelConfigured(c) {
+		return nil, userError("请先在模型设置中配置 AI 竖版海报的图片接口、模型和所需密钥")
+	}
 	id := randomID()
 	var targets []CoverTask
 	var err error
-	if body.Action == "covers" || body.Action == "generate" && (body.AutoCovers == nil || *body.AutoCovers) {
+	if isCoverAction(body.Action) || body.Action == "generate" && (body.AutoCovers == nil || *body.AutoCovers) {
 		targets, err = s.coverTargets(ids)
 		if err != nil {
 			return nil, err
+		}
+	}
+	if body.Action == "design_covers" {
+		series := []CoverTask{}
+		for _, task := range targets {
+			if task.Scope == "series" {
+				task.Design, task.Overwrite = true, body.Overwrite
+				series = append(series, task)
+			}
+		}
+		targets = series
+		if len(targets) == 0 {
+			return nil, userError("请选择至少一个剧集目录或分集，独立视频不生成剧集海报")
 		}
 	}
 	tx, err := s.db.Begin()
@@ -77,12 +92,12 @@ func (s *Store) startJobLocked(body JobRequest, retryOf string) (map[string]stri
 		return nil, err
 	}
 	defer tx.Rollback()
-	if body.Action != "covers" {
+	if !isCoverAction(body.Action) {
 		if _, err = tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created) VALUES(?,?,'queued',?,?,?)", id, body.Action, encode(ids), len(ids), now()); err != nil {
 			return nil, err
 		}
 	}
-	if body.Action != "covers" {
+	if !isCoverAction(body.Action) {
 		for _, vid := range ids {
 			if _, err = tx.Exec("INSERT INTO job_items(job_id,video_id,status,overwrite) VALUES(?,?,'queued',?)", id, vid, body.Overwrite); err != nil {
 				return nil, err
@@ -102,7 +117,7 @@ func (s *Store) startJobLocked(body JobRequest, retryOf string) (map[string]stri
 		return nil, err
 	}
 	s.launchCoverJob(coverID, tasks)
-	if body.Action == "covers" {
+	if isCoverAction(body.Action) {
 		return map[string]string{"id": coverID}, nil
 	}
 	s.launchTextJob(id, body.Action, ids, body.Overwrite)
@@ -161,17 +176,29 @@ func (s *Store) runJob(ctx context.Context, id, action string, ids []string, ove
 		}
 	}()
 	shows := map[string]bool{}
+	generated := map[string]generationResult{}
 	for _, vid := range ids {
-		if ctx.Err() != nil {
-			return
+		if _, ready := generated[vid]; ctx.Err() != nil && !ready {
+			continue
 		}
 		if _, err := s.db.Exec("UPDATE job_items SET status='running' WHERE job_id=? AND video_id=?", id, vid); err != nil {
 			return
 		}
-		skipped, err := s.processVideo(ctx, vid, action, overwrite, shows)
+		var err error
+		skipped := false
+		v, err := s.getVideo(vid)
+		if err == nil && action == "generate" && v.Kind == "episode" && v.ShowPath != nil {
+			if _, ready := generated[vid]; !ready {
+				s.generateSeriesBatch(ctx, v, ids, overwrite, generated)
+			}
+			result := generated[vid]
+			skipped, err = result.skipped, result.err
+		} else if err == nil {
+			skipped, err = s.processVideo(ctx, vid, action, overwrite, shows)
+		}
 		if err != nil && ctx.Err() != nil {
 			s.db.Exec("UPDATE videos SET status='error',error='任务已取消，请重试' WHERE id=? AND status='generating'", vid)
-			return
+			continue
 		}
 		status, message, failed, skip := "completed", "", 0, 0
 		if err != nil {
@@ -252,42 +279,9 @@ func (s *Store) processVideo(ctx context.Context, id, action string, overwrite b
 		if _, err = s.db.Exec("UPDATE videos SET status='generating',error='' WHERE id=?", id); err != nil {
 			return false, err
 		}
-		evidence, err := s.evidence(v)
+		evidence, err := s.evidenceContext(ctx, v)
 		if err != nil {
 			return false, err
-		}
-		if v.ShowPath != nil {
-			show, err := s.getShow(*v.ShowPath)
-			if err != nil {
-				return false, err
-			}
-			if show == nil {
-				rows, err := s.db.Query("SELECT path FROM videos WHERE show_path=? ORDER BY path LIMIT 200", *v.ShowPath)
-				if err != nil {
-					return false, err
-				}
-				names := []string{}
-				for rows.Next() {
-					var p string
-					if err = rows.Scan(&p); err != nil {
-						rows.Close()
-						return false, err
-					}
-					names = append(names, filepath.Base(p))
-				}
-				err = rows.Err()
-				rows.Close()
-				if err != nil {
-					return false, err
-				}
-				show, err = s.ai(ctx, map[string]any{"kind": "series_overview", "folder": v.Show.Title, "directory": *v.ShowPath, "episode_filenames": names, "sample_episode_embedded": evidence.Embedded, "evidence": "提供完整相对目录和文件名，可能不是完整剧集；内嵌标签仅来自当前单集，不能代表整个剧集；请保守概括"})
-				if err != nil {
-					return false, err
-				}
-				if _, err = s.db.Exec("UPDATE shows SET metadata=? WHERE path=?", encode(show), *v.ShowPath); err != nil {
-					return false, err
-				}
-			}
 		}
 		m, err := s.ai(ctx, evidence)
 		if err != nil {

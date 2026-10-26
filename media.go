@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"encoding/xml"
@@ -395,6 +396,9 @@ func (s *Store) repairSeasonRecords() error {
 		}
 		newOwner, oldOwner := "show:"+c.newShow, "show:"+c.oldShow
 		newPoster := filepath.ToSlash(filepath.Join(c.newShow, "poster.jpg"))
+		if _, err = tx.Exec("INSERT OR IGNORE INTO cover_assets(owner,target,image,updated) SELECT ?,?,image,updated FROM cover_assets WHERE owner=?", "show-fanart:"+c.newShow, filepath.ToSlash(filepath.Join(c.newShow, "fanart.jpg")), "show-fanart:"+c.oldShow); err != nil {
+			return err
+		}
 		var image []byte
 		var updated float64
 		if readErr := tx.QueryRow("SELECT image,updated FROM cover_assets WHERE owner=?", oldOwner).Scan(&image, &updated); readErr == nil {
@@ -597,6 +601,10 @@ type Evidence struct {
 }
 
 func (s *Store) evidence(v Video) (Evidence, error) {
+	return s.evidenceContext(s.ctx, v)
+}
+
+func (s *Store) evidenceContext(ctx context.Context, v Video) (Evidence, error) {
 	result := Evidence{Filename: v.Filename, Kind: v.Kind, Sources: []Source{}, Evidence: "仅文件名和目录；不得扩写具体内容"}
 	p, err := s.safe(v.Path, true)
 	if err != nil {
@@ -604,7 +612,7 @@ func (s *Store) evidence(v Video) (Evidence, error) {
 	}
 	result.Folder = filepath.Base(filepath.Dir(p))
 	result.Directory = s.relative(filepath.Dir(p))
-	if probe, err := probeEmbedded(s.ctx, p); err != nil {
+	if probe, err := probeEmbedded(ctx, p); err != nil {
 		result.Warnings = append(result.Warnings, publicError(err))
 	} else {
 		result.Embedded = probe.metadata()
@@ -629,6 +637,9 @@ func (s *Store) evidence(v Video) (Evidence, error) {
 	}
 	remaining, seen := 24000, map[string]bool{}
 	for _, path := range candidates {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if seen[path] || remaining <= 0 {
 			continue
 		}

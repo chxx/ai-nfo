@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math"
 	"sort"
 	"strings"
@@ -10,14 +11,18 @@ import (
 )
 
 type CoverTask struct {
-	ID      string `json:"id"`
-	VideoID string `json:"video_id"`
-	Owner   string `json:"owner"`
-	Scope   string `json:"scope"`
-	Path    string `json:"path"`
-	Status  string `json:"status"`
-	Error   string `json:"error"`
+	ID        string `json:"id"`
+	VideoID   string `json:"video_id"`
+	Owner     string `json:"owner"`
+	Scope     string `json:"scope"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Error     string `json:"error"`
+	Design    bool   `json:"design,omitempty"`
+	Overwrite bool   `json:"overwrite,omitempty"`
 }
+
+func isCoverAction(action string) bool { return action == "covers" || action == "design_covers" }
 
 // A shared gate covers the whole pipeline, including manual requests.
 func (s *Store) acquireCover(ctx context.Context, wait bool) (func(), error) {
@@ -76,7 +81,12 @@ func queueCoverTasks(tx *sql.Tx, tasks []CoverTask) (string, []CoverTask, error)
 	if len(queued) == 0 {
 		return "", queued, nil
 	}
-	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,'covers','queued',?,?,?,'自动获取海报；按配置的并发上限执行，已有海报保留')", jobID, encode(queued), len(queued), now())
+	action, message := "covers", "自动获取海报；按配置的并发上限执行，已有海报保留"
+	if queued[0].Design {
+		action, message = "design_covers", "批量生成 AI 竖版海报；每个剧集生成一次，成功后自动保存"
+	}
+	// The snapshot retains generation/overwrite options across retries and restarts.
+	_, err := tx.Exec("INSERT INTO jobs(id,action,status,ids,total,created,message) VALUES(?,?,'queued',?,?,?,?)", jobID, action, encode(queued), len(queued), now(), message)
 	return jobID, queued, err
 }
 
@@ -123,7 +133,12 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 					return
 				}
 				s.db.Exec("UPDATE cover_tasks SET status='running' WHERE id=?", task.ID)
-				skipped, err := s.autoCover(ctx, task)
+				var skipped bool
+				if task.Design {
+					skipped, err = s.designSeriesCover(ctx, task)
+				} else {
+					skipped, err = s.autoCover(ctx, task)
+				}
 				release()
 				status, message := "saved", ""
 				failed, skip, done := 0, 0, 1
@@ -167,8 +182,43 @@ func (s *Store) runCoverJob(ctx context.Context, id string, tasks []CoverTask) {
 	} else {
 		// Unexpected storage failures must not look like successful completion.
 		s.db.Exec("UPDATE cover_tasks SET status='failed',error='处理被中断，请重试' WHERE job_id=? AND status IN ('queued','running')", id)
-		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END,message=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN message ELSE '海报任务已完成，已有海报保留' END WHERE id=?", id, id, id, id, id)
+		s.db.Exec("UPDATE jobs SET done=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status IN ('saved','skipped','failed')),failed=(SELECT COUNT(*) FROM cover_tasks WHERE job_id=? AND status='failed'),status=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN 'partial' ELSE 'completed' END,message=CASE WHEN EXISTS(SELECT 1 FROM cover_tasks WHERE job_id=? AND status='failed') THEN message ELSE '海报任务已完成' END WHERE id=?", id, id, id, id, id)
 	}
+}
+
+func (s *Store) designSeriesCover(ctx context.Context, task CoverTask) (bool, error) {
+	v, err := s.getVideo(task.VideoID)
+	if err != nil {
+		return false, err
+	}
+	target, err := s.targetCover(v, "series")
+	if err != nil {
+		return false, err
+	}
+	if task.Scope != "series" || target.Owner != task.Owner {
+		return false, userError("视频所属剧集已变化，请重新创建海报任务")
+	}
+	if !task.Overwrite && s.videoAvailable(target.Path) {
+		return true, nil
+	}
+	if !v.Exists {
+		return false, userError("视频不可访问，无法生成并保存剧集海报")
+	}
+	candidate, err := s.designCoverWork(ctx, DesignCoverRequest{ID: v.ID})
+	if err != nil {
+		return false, err
+	}
+	// Use the same cancellation/write boundary as automatic cover tasks.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	saved, err := s.saveCoverWork(SaveCoverRequest{ID: v.ID, Scope: "series", CandidateID: candidate.ID, Overwrite: task.Overwrite})
+	if err != nil {
+		return false, err
+	}
+	return saved["saved"] != true, nil
 }
 
 func bestAutoCover(candidates []CoverCandidate, web bool, scope, kind string) *CoverCandidate {
@@ -181,6 +231,12 @@ func bestAutoCover(candidates []CoverCandidate, web bool, scope, kind string) *C
 		eligible = append(eligible, c)
 	}
 	sort.SliceStable(eligible, func(i, j int) bool {
+		if scope == "series" {
+			ip, jp := eligible[i].Height > eligible[i].Width, eligible[j].Height > eligible[j].Width
+			if ip != jp {
+				return ip
+			}
+		}
 		score := func(c CoverCandidate) float64 {
 			ratio := float64(c.Width) / float64(max(1, c.Height))
 			ideal := 16.0 / 9 // episode stills use the video's landscape ratio
@@ -226,7 +282,7 @@ func (s *Store) autoCover(ctx context.Context, task CoverTask) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}
-	if chosen == nil {
+	if chosen == nil && !(task.Scope == "series" && imageModelConfigured(s.getConfig())) {
 		web, err := s.searchCoversWork(ctx, CoverRequest{ID: v.ID, Scope: task.Scope, UseAI: true})
 		if err == nil {
 			chosen = bestAutoCover(web.Candidates, true, task.Scope, v.Kind)
@@ -252,10 +308,21 @@ func (s *Store) autoCover(ctx context.Context, task CoverTask) (bool, error) {
 				return false, ctx.Err()
 			}
 		}
-		if chosen == nil {
+		if chosen == nil && task.Scope != "series" {
 			failures = append(failures, publicError(err))
 			return false, userError(cleanText(strings.Join(failures, "；"), 1200))
 		}
+	}
+	if task.Scope == "series" && (chosen == nil || chosen.Height <= chosen.Width) {
+		body := DesignCoverRequest{ID: v.ID}
+		if chosen != nil {
+			body.CandidateID = chosen.ID
+		}
+		designed, err := s.designCoverWork(ctx, body)
+		if err != nil {
+			return false, err
+		}
+		chosen = &designed
 	}
 	// Cancellation and file writing are serialized; once cancel returns no new writes begin.
 	s.mu.Lock()
@@ -293,23 +360,41 @@ func (s *Store) retryCoverJob(id string) (map[string]string, error) {
 	if s.ctx.Err() != nil {
 		return nil, userError("服务正在关闭")
 	}
-	var status string
-	if err := s.db.QueryRow("SELECT status FROM jobs WHERE id=? AND action='covers'", id).Scan(&status); err != nil {
+	var status, action, snapshot string
+	if err := s.db.QueryRow("SELECT status,action,ids FROM jobs WHERE id=? AND action IN ('covers','design_covers')", id).Scan(&status, &action, &snapshot); err != nil {
 		return nil, userError("找不到海报任务")
 	}
 	if status == "queued" || status == "running" || status == "cancelling" {
 		return nil, userError("请等待任务结束后再重试")
 	}
-	rows, err := s.db.Query("SELECT video_id,owner,scope,path FROM cover_tasks WHERE job_id=? AND status IN ('failed','interrupted','cancelled')", id)
+	options := map[string]CoverTask{}
+	if action == "design_covers" {
+		var original []CoverTask
+		if err := json.Unmarshal([]byte(snapshot), &original); err != nil {
+			return nil, userError("海报任务参数不可读，请重新创建任务")
+		}
+		for _, task := range original {
+			options[task.ID] = task
+		}
+	}
+	rows, err := s.db.Query("SELECT id,video_id,owner,scope,path FROM cover_tasks WHERE job_id=? AND status IN ('failed','interrupted','cancelled')", id)
 	if err != nil {
 		return nil, err
 	}
 	tasks := []CoverTask{}
 	for rows.Next() {
 		var t CoverTask
-		if err = rows.Scan(&t.VideoID, &t.Owner, &t.Scope, &t.Path); err != nil {
+		if err = rows.Scan(&t.ID, &t.VideoID, &t.Owner, &t.Scope, &t.Path); err != nil {
 			rows.Close()
 			return nil, err
+		}
+		if action == "design_covers" {
+			option, ok := options[t.ID]
+			if !ok || !option.Design || t.Scope != "series" {
+				rows.Close()
+				return nil, userError("海报任务参数不完整，请重新创建任务")
+			}
+			t.Design, t.Overwrite = true, option.Overwrite
 		}
 		tasks = append(tasks, t)
 	}

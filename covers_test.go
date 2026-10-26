@@ -232,6 +232,13 @@ func TestCoverSaveOwnershipBackupAndAuth(t *testing.T) {
 	if _, err := s.saveCover(SaveCoverRequest{ID: ids[0], Scope: "video", CandidateID: c.ID}); err == nil {
 		t.Fatal("series candidate used for video")
 	}
+	if _, err := s.saveCover(SaveCoverRequest{ID: ids[1], Scope: "series", CandidateID: c.ID}); err == nil {
+		t.Fatal("landscape image accepted as series poster")
+	}
+	c, err := s.cacheCover("show:course", CoverCandidate{Title: "竖版海报"}, previewPNG(t, 600, 900))
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := SaveCoverRequest{ID: ids[1], Scope: "series", CandidateID: c.ID}
 	w = request(app, "POST", "/api/covers/save", encode(body), nil, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"saved":true`) {

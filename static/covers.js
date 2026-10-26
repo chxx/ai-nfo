@@ -1,10 +1,14 @@
 'use strict';
 const coverState = {video: null, candidates: [], busy: false};
-const coverMatchNames = {likely: 'AI：可能匹配', uncertain: 'AI：待核对', unlikely: 'AI：可能不匹配', unreviewed: '待手动核对', local: '本地截图', embedded: '文件内嵌海报'};
+const coverMatchNames = {likely: 'AI：可能匹配', uncertain: 'AI：待核对', unlikely: 'AI：可能不匹配', unreviewed: '待手动核对', local: '本地截图', embedded: '文件内嵌海报', generated: 'AI 设计竖版'};
 function coverBusy(busy) {
   coverState.busy = busy;
-  ['cover-search', 'cover-embedded', 'cover-snapshot', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy);
-  $('cover-save').disabled = busy || !document.querySelector('input[name="cover-choice"]:checked');
+  ['cover-design', 'cover-search', 'cover-embedded', 'cover-snapshot', 'cover-source', 'cover-query', 'cover-ai', 'cover-seconds', 'cover-overwrite'].forEach(id => $(id).disabled = busy);
+  const choice = document.querySelector('input[name="cover-choice"]:checked');
+  const selected = coverState.candidates.find(c => c.id === choice?.value);
+  const needsPortrait = $('cover-scope').value === 'series' && selected && selected.width >= selected.height;
+  $('cover-save').disabled = busy || !selected || needsPortrait;
+  $('cover-save').title = needsPortrait ? '横图请先使用 AI 设计竖版海报' : '';
 }
 function renderCoverCandidates(candidates) {
   coverState.candidates = candidates;
@@ -33,6 +37,7 @@ async function openCovers(id, scope = 'video', missing = false) {
   $('cover-title').textContent = series ? '识别剧集海报' : '识别本集海报';
   $('cover-video').textContent = series && video.show_path ? '剧集目录：' + video.show_path : video.path;
   $('cover-scope').value = series ? 'series' : 'video';
+  $('cover-design-option').hidden = !series;
   $('cover-source').value = ''; $('cover-query').value = ''; $('cover-overwrite').checked = false;
   $('cover-ai').checked = !!(state.settings.model && state.settings.base_url);
   $('cover-feedback').textContent = $('cover-scope').value === 'series' ? '填写剧集来源链接或直接联网查找剧集海报。' : '填写本集来源链接或直接联网查找海报。';
@@ -91,3 +96,19 @@ $('search-provider').onchange = () => {
   searchProviderHint();
   if ($('search-provider').value === 'tavily' && !$('search-url').value) $('search-url').value = 'https://api.tavily.com';
 };
+
+$('cover-design').onclick = run(async () => {
+  if (!state.settings.image_base_url || !state.settings.image_model) {
+    $('cover-dialog').close(); page('settings'); toast('请先配置 AI 竖版海报的图片接口、模型和密钥'); return;
+  }
+  const reference = document.querySelector('input[name="cover-choice"]:checked')?.value || '';
+  coverBusy(true); $('cover-feedback').textContent = '正在设计 2:3 竖版海报，可能需要几分钟…';
+  try {
+    const candidate = await api('/api/covers/design', {id: coverState.video.id, candidate_id: reference});
+    renderCoverCandidates([...coverState.candidates, candidate]);
+    const choice = document.querySelector(`input[name="cover-choice"][value="${candidate.id}"]`);
+    if (choice) choice.checked = true;
+    $('cover-feedback').textContent = '竖版海报已生成，请核对标题与画面后保存；有原图时会单独保留为背景图。';
+  } catch (err) { $('cover-feedback').textContent = err.message; throw err; }
+  finally { coverBusy(false); }
+});

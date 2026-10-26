@@ -35,16 +35,17 @@ type CoverRequest struct {
 	UseAI     bool   `json:"use_ai"`
 }
 type CoverCandidate struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	SourceURL  string `json:"source_url"`
-	ImageURL   string `json:"image_url"`
-	PreviewURL string `json:"preview_url"`
-	Width      int    `json:"width"`
-	Height     int    `json:"height"`
-	Match      string `json:"match"`
-	Reason     string `json:"reason"`
-	Kind       string `json:"kind"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	SourceURL   string `json:"source_url"`
+	ImageURL    string `json:"image_url"`
+	PreviewURL  string `json:"preview_url"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Match       string `json:"match"`
+	Reason      string `json:"reason"`
+	Kind        string `json:"kind"`
+	ReferenceID string `json:"reference_id,omitempty"`
 }
 type CoverResults struct {
 	Query      string           `json:"query"`
@@ -176,10 +177,12 @@ func coverTargetPath(v Video, scope string) (coverTarget, error) {
 			return coverTarget{}, userError("此视频不属于剧集")
 		}
 		name := "poster.jpg"
+		owner := "show:" + *v.ShowPath
 		if scope == "series-fanart" {
 			name = "fanart.jpg"
+			owner = "show-fanart:" + *v.ShowPath
 		}
-		return coverTarget{"show:" + *v.ShowPath, filepath.ToSlash(filepath.Join(*v.ShowPath, name))}, nil
+		return coverTarget{owner, filepath.ToSlash(filepath.Join(*v.ShowPath, name))}, nil
 	}
 	if scope != "video" && scope != "video-fanart" {
 		return coverTarget{}, userError("请选择剧集海报或本集海报")
@@ -319,6 +322,9 @@ func (s *Store) coverCandidates(owner string) ([]CoverCandidate, error) {
 		}
 		var candidate CoverCandidate
 		if json.Unmarshal([]byte(raw), &candidate) != nil {
+			continue
+		}
+		if candidate.Kind == "reference" {
 			continue
 		}
 		if candidate.ID == "" {
@@ -662,23 +668,45 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	background := raw
+	if body.Scope == "series" {
+		config, _, e := image.DecodeConfig(bytes.NewReader(raw))
+		if e != nil || config.Width >= config.Height {
+			return nil, userError("剧集主海报需要竖版，请先选中这张图片并点击“AI 设计竖版海报”")
+		}
+		var candidate CoverCandidate
+		if err = json.Unmarshal([]byte(metadata), &candidate); err != nil {
+			return nil, err
+		}
+		if candidate.ReferenceID != "" {
+			background, err = s.coverCandidateImage(candidate.ReferenceID, target.Owner)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	saved, err := s.writeFile(target.Path, raw, body.Overwrite)
 	if err != nil {
 		return nil, err
 	}
-	artwork := raw
+	poster, artwork := raw, background
 	if !saved && !body.Overwrite {
 		// A series may have been generated before season artwork support was
 		// added. Use the existing root poster to fill only missing aliases;
 		// never replace a user's existing selection without overwrite=true.
 		if existing, _, loadErr := s.loadCoverAsset(target); loadErr == nil {
-			artwork = existing
+			poster, artwork = existing, existing
+		}
+		if body.Scope == "series" {
+			fanart, _ := coverTargetPath(v, "series-fanart")
+			if existing, _, loadErr := s.loadCoverAsset(fanart); loadErr == nil {
+				artwork = existing
+			}
 		}
 	}
 	if saved || body.Scope == "series" {
 		// Zidoo uses a separate local fanart file for the detail-page background.
-		// Keep it in sync with the selected poster/still so one cover decision
-		// produces a complete local artwork set.
+		// Generated portrait posters retain the original reference as fanart.
 		fanartScope := "video-fanart"
 		if body.Scope == "series" {
 			fanartScope = "series-fanart"
@@ -687,8 +715,14 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 		if fanartErr != nil {
 			return nil, fanartErr
 		}
-		if _, fanartErr = s.writeFile(fanart.Path, artwork, body.Overwrite); fanartErr != nil {
+		fanartSaved, fanartErr := s.writeFile(fanart.Path, artwork, body.Overwrite)
+		if fanartErr != nil {
 			return nil, fanartErr
+		}
+		if fanartSaved && body.Scope == "series" {
+			if _, err = s.db.Exec("INSERT INTO cover_assets(owner,target,image,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET target=excluded.target,image=excluded.image,updated=excluded.updated", fanart.Owner, fanart.Path, artwork, now()); err != nil {
+				return nil, err
+			}
 		}
 		if body.Scope == "series" {
 			seasonPaths, seasonErr := s.seasonArtworkPaths(v)
@@ -696,7 +730,11 @@ func (s *Store) saveCoverWork(body SaveCoverRequest) (map[string]any, error) {
 				return nil, seasonErr
 			}
 			for _, seasonPath := range seasonPaths {
-				if _, seasonErr = s.writeFile(seasonPath, artwork, body.Overwrite); seasonErr != nil {
+				seasonImage := poster
+				if strings.HasSuffix(seasonPath, "-fanart.jpg") {
+					seasonImage = artwork
+				}
+				if _, seasonErr = s.writeFile(seasonPath, seasonImage, body.Overwrite); seasonErr != nil {
 					return nil, seasonErr
 				}
 			}

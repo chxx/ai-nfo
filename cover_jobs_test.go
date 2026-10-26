@@ -14,7 +14,7 @@ import (
 
 func TestAutoCoverGenerationAndSeriesDedup(t *testing.T) {
 	s := testStore(t)
-	fakeMediaTools(t, `{"streams":[{"index":1,"codec_type":"video","codec_name":"png","disposition":{"attached_pic":1}}]}`, testCoverPNG(t))
+	fakeMediaTools(t, `{"streams":[{"index":1,"codec_type":"video","codec_name":"png","disposition":{"attached_pic":1}}]}`, previewPNG(t, 600, 900))
 	configure(t, s, "https://ai.example", "compatible")
 	var calls atomic.Int32
 	s.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -22,7 +22,13 @@ func TestAutoCoverGenerationAndSeriesDedup(t *testing.T) {
 		if r.URL.Path != "/chat/completions" {
 			t.Errorf("embedded cover should not search: %s", r.URL.Path)
 		}
-		return mockResponse(r, 200, "application/json", []byte(`{"choices":[{"message":{"content":"{\"title\":\"课程\",\"plot\":\"简介\"}"}}]}`)), nil
+		input := readGenerationInput(t, r)
+		response := generationFixture(input)
+		response.Series.Title = "课程"
+		for i := range response.Episodes {
+			response.Episodes[i].Title = "课程"
+		}
+		return mockResponse(r, 200, "application/json", []byte(encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": encode(response)}}}}))), nil
 	})
 	put(t, s, "course/S01E01.mp4", "source")
 	put(t, s, "course/S01E02.mp4", "source")
@@ -40,7 +46,7 @@ func TestAutoCoverGenerationAndSeriesDedup(t *testing.T) {
 			t.Fatal("series not deduplicated", job)
 		}
 	}
-	if calls.Load() != 3 {
+	if calls.Load() != 1 {
 		t.Fatal("unexpected model calls", calls.Load())
 	}
 	for _, path := range []string{"course/poster.jpg", "course/S01E01-thumb.jpg", "course/S01E02-thumb.jpg"} {
@@ -55,7 +61,7 @@ func TestAutoCoverGenerationAndSeriesDedup(t *testing.T) {
 		}
 	}
 	job := waitJob(t, s, start(t, s, "covers", ids, false))
-	if job.Skipped != 3 || job.Failed != 0 || calls.Load() != 3 {
+	if job.Skipped != 3 || job.Failed != 0 || calls.Load() != 1 {
 		t.Fatal("existing covers not preserved", job)
 	}
 	// Opting out creates only the text job.

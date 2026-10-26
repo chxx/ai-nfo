@@ -133,7 +133,7 @@ func (s *Store) ensureJobsIdle(allowCovers bool) error {
 		return userError("服务正在关闭，请稍后重试")
 	}
 	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','cancelling') AND (?=0 OR action<>'covers')", allowCovers).Scan(&count); err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','cancelling') AND (?=0 OR action NOT IN ('covers','design_covers'))", allowCovers).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -278,6 +278,7 @@ type SettingsRequest struct {
 	Config
 	ClearKey       bool `json:"clear_key"`
 	ClearSearchKey bool `json:"clear_search_key"`
+	ClearImageKey  bool `json:"clear_image_key"`
 }
 
 func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
@@ -299,6 +300,21 @@ func (s *Store) saveSettings(body SettingsRequest) (map[string]any, error) {
 		return nil, userError("接口地址须为 http(s) 地址，不要包含密钥、查询参数或完整请求路径")
 	}
 	c.Model = cleanText(c.Model, 200)
+	c.ImageModel = cleanText(c.ImageModel, 200)
+	c.ImageBaseURL = strings.TrimRight(cleanText(c.ImageBaseURL, 2000), "/")
+	if c.ImageBaseURL != "" {
+		u, err := url.Parse(c.ImageBaseURL)
+		if err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+			return nil, userError("图片接口地址须为不含密钥或查询参数的 http(s) 基础地址")
+		}
+	}
+	if body.ClearImageKey {
+		c.ImageAPIKey = ""
+	} else if c.ImageAPIKey == "" {
+		c.ImageAPIKey = s.getConfig().ImageAPIKey
+	} else {
+		c.ImageAPIKey = cleanText(c.ImageAPIKey, 4000)
+	}
 	if c.SearchProvider != "" && c.SearchProvider != "model" && c.SearchProvider != "none" && c.SearchProvider != "tavily" && c.SearchProvider != "searxng" {
 		return nil, userError("未知搜索接口类型")
 	}

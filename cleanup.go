@@ -164,7 +164,7 @@ func (s *Store) removeRecords(body ClearRecordsRequest, unavailableOnly bool) (C
 	}
 	for path := range shows {
 		for _, table := range []string{"cover_candidates", "cover_selections", "cover_assets"} {
-			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner=? AND NOT EXISTS (SELECT 1 FROM videos WHERE show_path=?)", "show:"+path, path); err != nil {
+			if _, err = tx.Exec("DELETE FROM "+table+" WHERE owner IN (?,?) AND NOT EXISTS (SELECT 1 FROM videos WHERE show_path=?)", "show:"+path, "show-fanart:"+path, path); err != nil {
 				return CleanupResult{}, err
 			}
 		}
